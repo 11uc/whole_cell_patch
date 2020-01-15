@@ -87,7 +87,7 @@ class ParamWidget(QGridLayout):
 					cb.addItem(j)
 				cb.currentTextChanged.connect(lambda x, ind = k, typ = v: \
 						self.updateParam(ind, typ, x))
-				cb.setCurrentIndex(-1)
+				cb.setCurrentIndex(0)
 				self.addWidget(cb, i, 1)
 				self.senderList.append(cb)
 			else:
@@ -113,11 +113,25 @@ class ParamWidget(QGridLayout):
 					pt = self.projMan.getProtocols()
 					for j in pt:
 						cb.addItem(j)
-					cb.setCurrentIndex(-1)
+					if len(pt):
+						cb.setCurrentIndex(0)
+					else:
+						self.err = True
 		else:
+			self.param = param
 			for i, (k, v) in enumerate(self.paramTyp.items()):
 				val = param[k]
-				if v == "int" or v == "float":
+				if v == "protocol" and self.projMan != None:
+					cb = self.senderList[i]
+					cb.clear()
+					pt = self.projMan.getProtocols()
+					for j in pt:
+						cb.addItem(j)
+					if len(pt):
+						cb.setCurrentIndex(0)
+					else:
+						self.err = True
+				elif v == "int" or v == "float":
 					if v == "int" or (1e-3 < abs(val) and abs(val) < 1e3):
 						ds = str(val)
 					else:
@@ -137,11 +151,14 @@ class ParamWidget(QGridLayout):
 						ds = "{:.3e}".format(val[1])
 					le1.setText(ds)
 				elif v == "intl" or v == "floatl":
-					if v == "intl" or (1e-3 < min(map(abs, val)) and \
-							max(map(abs, val)) < 1e3):
-						ds = ", ".join(map(str, val))
+					if len(val):
+						if v == "intl" or (1e-3 < min(map(abs, val)) and \
+								max(map(abs, val)) < 1e3):
+							ds = ", ".join(map(str, val))
+						else:
+							ds = ", ".join(["{:.3e}".format(d) for d in val])
 					else:
-						ds = ", ".join(["{:.3e}".format(d) for d in val])
+						ds = ''
 					le = self.senderList[i]
 					le.setText(ds)
 				elif v == "bool":

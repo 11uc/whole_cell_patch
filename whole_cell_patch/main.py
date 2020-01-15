@@ -219,11 +219,12 @@ class wcpMainWindow(QMainWindow):
 		# Also update module.
 		self.updateModule()
 		# Also update cell list.
-		cl = self.proj.getCells()
 		self.cellCb.clear()
-		for c in cl:
-			self.cellCb.addItem(str(c))
-		self.cellCb.setCurrentIndex(0)
+		if len(self.proj.baseFolder):
+			cl = self.proj.getCells()
+			for c in cl:
+				self.cellCb.addItem(str(c))
+			self.cellCb.setCurrentIndex(0)
 	
 	@pyqtSlot(str)
 	def updateTrials(self, cell):

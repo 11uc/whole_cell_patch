@@ -40,7 +40,7 @@ class AP(Analysis):
 					"spike_peak_threshold": 0.02,
 					"half_width_threshold": 0.004,
 					"sign": 1,
-					"mAHP_begin": 0.1,
+					"mAHP_begin": 0.01,
 					"mAHP_end": 0.2,
 					"baseline": 0.1,
 					"sAHP_begin": 0.2,
@@ -311,8 +311,7 @@ class AP(Analysis):
 		trialProps = store.get("/AP/" + protocol + "/trialProps")
 		apProps = store.get("/AP/" + protocol + "/apProps")
 		apProps.reset_index("id", inplace = True)
-		print(trialProps.index)
-		print(apProps.index)
+		store.close()
 		if len(cells):
 			apProps = apProps.loc[(cells), :]
 		if rateRange[0] < rateRange[1]:

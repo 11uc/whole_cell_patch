@@ -78,7 +78,8 @@ class Analysis(QObject):
 		'''
 		Check if stop of an analysis is requested by the user. Use this function
 		in analysis methods, usually in a loop where it's safe to stop. If it's
-		true, stop the analysis as requested.
+		true, stop the analysis as requested. When stop is requested, update
+		the flag to False.
 
 		Returns
 		-------
@@ -87,6 +88,8 @@ class Analysis(QObject):
 		'''
 		self.qm.lock()
 		ret = copy.copy(self.toStop)
+		if ret:
+			self.toStop = False
 		self.qm.unlock()
 		return ret
 	
