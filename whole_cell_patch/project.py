@@ -236,7 +236,6 @@ class Project(QObject):
 			Dictionary with cells as keys and trial-protocol pairs
 			DataFrame as values.
 		'''
-		self.protocols = set(labels["protocol"])
 		if len(cells) == 0:
 			cells = self.getCells()
 		if not hasattr(self, "assignedProt"):
@@ -244,7 +243,17 @@ class Project(QObject):
 		for c in cells:
 			cTrials = self.getTrials([c])
 			labeled = list(set(cTrials) & set(labels.index))
-			self.assignedProt[c] = labels.loc[labeled, :]
+			prot = labels.loc[labeled, :]
+			# record the simulation intensity of the trials as well.
+			prot["stim"] = np.nan
+			for t in labeled:
+				_, _, stim = self.loadWave(c, t)
+				prot.loc[t, "stim"] = stim[2]
+			self.assignedProt[c] = prot
+		# update protocols by checking again all protocl tables
+		self.protocols = set()
+		for c, df in self.assignedProt.items():
+			self.protocols = self.protocols | set(df["protocol"])
 	
 	def getProtocols(self):
 		'''
@@ -320,35 +329,61 @@ class Project(QObject):
 				cells.add(int(matched.group(1)))
 		return list(cells)
 
-	def getTrials(self, cells):
+	def getTrials(self, cells, protocol = None, stim = None):
 		'''
 		Get list of trial ids for cells in the baseFolder. If there is more
-		than one cell, list the union of trials from each cell.
+		than one cell, list the union of trials from each cell. If protocol
+		and stim are provided, trials will be selected from saved protocol
+		stim table.
 
 		Parameters
 		----------
 		cells: array_like
 			Cell ids. If length is 0, all cells in the baseFolder will be 
 			considered.
+		protocol: string, optional
+			Protocol used to limit trials to get. Default not considered.
+		stim: float, optional
+			Stimulation amplitude used to limit trials to get. Default 
+			not considered.
 
 		Returns
 		-------
 		trials: list
 			Trial ids.
 		'''
-		dfs = os.listdir(self.baseFolder)
 		trials = set() 
-		for c in cells:
-			for df in dfs:
-				matched = re.match(self.formatParam['prefix'] + \
-						self.formatParam['link'] + \
-						'{:04d}'.format(c) + \
-						self.formatParam['link'] + \
-						'0*([1-9][0-9]*)' + \
-						self.formatParam['suffix'] , df)
-				if matched:
-					trials.add(int(matched.group(1)))
+		if protocol is None or stim is None:
+			dfs = os.listdir(self.baseFolder)
+			for c in cells:
+				for df in dfs:
+					matched = re.match(self.formatParam['prefix'] + \
+							self.formatParam['link'] + \
+							'{:04d}'.format(c) + \
+							self.formatParam['link'] + \
+							'0*([1-9][0-9]*)' + \
+							self.formatParam['suffix'] , df)
+					if matched:
+						trials.add(int(matched.group(1)))
+		elif hasattr(self, "assignedProt"):
+			for c in cells:
+				prot = self.assignedProt[c]
+				ts = set(prot.index[(prot["protocol"] == protocol) &
+						(abs(prot["stim"] - stim) < 1e-12)])
+				trials = trials | ts
 		return list(trials)
+
+	def getStims(self, cell, protocol):
+		'''
+		Get list of stimulation amplitude for cell in protocol.
+		'''
+		stims = []
+		if hasattr(self, "assignedProt"):
+			if cell in self.assignedProt:
+				prot = self.assignedProt[cell]
+				if "stim" in prot.columns:
+					stims = set(prot.loc[prot["protocol"] == protocol, "stim"])
+		return list(stims)
 
 	def loadWave(self, cell, trial):
 		'''

@@ -144,10 +144,14 @@ class wcpMainWindow(QMainWindow):
 		selectCellBtn.clicked.connect(self.selectCells)
 		assignTypBtn.clicked.connect(self.assignTyp)
 		assignProtBtn.clicked.connect(self.assignProtSelect)
-		self.cellCb.currentTextChanged.connect(self.updateTrials)
+		self.trialCb.clicked.connect(self.updateTrialsBySelection)
+		self.stimCb.clicked.connect(self.updateProtocols)
+		self.cellCb.currentTextChanged.connect(self.updateTrialsByCell)
+		self.cellCb.currentTextChanged.connect(self.updateStimsByCellOrProtocol)
+		self.protocolCb.currentTextChanged.connect(self.updateStimsByCellOrProtocol)
+		self.stimCbb.currentTextChanged.connect(self.updateTrialsByStim)
 		displayBtn.clicked.connect(self.disp)
 		appendBtn.clicked.connect(self.appDisp)
-		self.stimCb.stateChanged.connect(self.updateProt)
 		paramImportAct.triggered.connect(self.importParams)
 		paramExportAct.triggered.connect(self.exportParams)
 	
@@ -227,7 +231,7 @@ class wcpMainWindow(QMainWindow):
 			self.cellCb.setCurrentIndex(0)
 	
 	@pyqtSlot(str)
-	def updateTrials(self, cell):
+	def updateTrialsByCell(self, cell):
 		'''
 		Update trial list in the display region when a cell is selected.
 
@@ -236,10 +240,70 @@ class wcpMainWindow(QMainWindow):
 		cell: string
 			Id of selected cell in the cell list.
 		'''
-		tl = self.proj.getTrials([int(cell)])
-		self.trialCbb.clear()
-		for t in tl:
-			self.trialCbb.addItem(str(t))
+		if len(cell) and self.trialCb.isChecked():
+			tl = self.proj.getTrials([int(cell)])
+			self.trialCbb.clear()
+			for t in tl:
+				self.trialCbb.addItem(str(t))
+	
+	@pyqtSlot(str)
+	def updateTrialsByStim(self, stim):
+		'''
+		Update trial list when a stimuation is selected.
+
+		Parameters
+		----------
+		stim: string
+			Stimualtion from the stimulation list.
+		'''
+		if len(stim):
+			c = int(self.cellCb.currentText())
+			p = self.protocolCb.currentText()
+			s = float(self.stimCbb.currentText())
+			tl = self.proj.getTrials([c], p, s)
+			self.trialCbb.clear()
+			for t in tl:
+				self.trialCbb.addItem(str(t))
+
+	def updateTrialsBySelection(self, _):
+		'''
+		Update the trial list when display by trial mode is selected.
+		'''
+		c = self.cellCb.currentText()
+		if len(c):
+			tl = self.proj.getTrials([int(c)])
+			self.trialCbb.clear()
+			for t in tl:
+				self.trialCbb.addItem(str(t))
+
+	def updateProtocols(self, _):
+		'''
+		Update protocol list in the display region when display by stimulation
+		mode is selected.
+		'''
+		pl = self.proj.getProtocols()
+		if len(pl):
+			self.protocolCb.clear()
+			for p in pl:
+				self.protocolCb.addItem(p)
+			self.protocolCb.setCurrentIndex(0)
+
+	@pyqtSlot(str)
+	def updateStimsByCellOrProtocol(self, arg):
+		'''
+		Update stimulation list in the display region when a new protocol
+		is selected or a new cell is selected.
+		'''
+		# only update when display by stimulation mode is selected.
+		if self.stimCb.isChecked():
+			c = int(self.cellCb.currentText())
+			p = self.protocolCb.currentText()
+			sl = self.proj.getStims(c, p)
+			self.stimCbb.clear()
+			for s in sl:
+				self.stimCbb.addItem(str(s))
+			if len(sl):
+				self.stimCbb.setCurrentIndex(0)
 	
 	def updateModule(self):
 		'''
@@ -272,7 +336,6 @@ class wcpMainWindow(QMainWindow):
 		if self.changeable():
 			try:
 				df = self.proj.getAssignedType()
-				print(df["type"])
 				assignDg = AssignDialog(df, self)
 				assignDg.start()
 				assignDg.assigned.connect(self.proj.assignType)
@@ -311,7 +374,6 @@ class wcpMainWindow(QMainWindow):
 		df = pd.DataFrame([], index = pd.Index(trials, name = "trial"),
 				columns = ["protocol"])
 		df["protocol"] = ''
-		print(df["protocol"])
 		assignDg = AssignDialog(df, self)
 		assignDg.start()
 		assignDg.assigned.connect(lambda labels: 
@@ -380,7 +442,6 @@ class wcpMainWindow(QMainWindow):
 		'''
 		Promote a window as active window.
 		'''
-		print("Select plot window")
 		i = self.plotWindows.index(pw)
 		self.plotWindows.append(self.plotWindows.pop(i))
 
@@ -388,7 +449,6 @@ class wcpMainWindow(QMainWindow):
 		'''
 		Promote a window as active window.
 		'''
-		print("Closed plot window")
 		i = self.plotWindows.index(pw)
 		self.plotWindows.pop(i)
 		del(pw)
@@ -526,19 +586,6 @@ class wcpMainWindow(QMainWindow):
 		Reset attribute traceWin to None when the window is closed.
 		'''
 		self.traceWin = None
-	
-	@pyqtSlot(int)
-	def updateProt(self, state):
-		'''
-		Update display of protocols in the ComboBox when the stimCb is 
-		checked.
-		'''
-		if state == Qt.Checked:
-			self.protocolCb.clear()
-			pt = self.proj.getProtocols()
-			for i in pt:
-				self.protocolCb.addItem(i)
-			self.protocolCb.update()
 	
 	def changeable(self):
 		'''
