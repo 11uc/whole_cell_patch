@@ -174,7 +174,7 @@ class wcpMainWindow(QMainWindow):
 					self.proj.workDir + "/untitled.p")
 			target = target[0]
 			if len(target):
-				self.proj = Project()
+				self.proj.clear()
 				self.proj.projFile = target
 				self.proj.save(target)
 				self.updateDisp()
@@ -282,8 +282,8 @@ class wcpMainWindow(QMainWindow):
 		mode is selected.
 		'''
 		pl = self.proj.getProtocols()
+		self.protocolCb.clear()
 		if len(pl):
-			self.protocolCb.clear()
 			for p in pl:
 				self.protocolCb.addItem(p)
 			self.protocolCb.setCurrentIndex(0)

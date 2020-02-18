@@ -267,19 +267,27 @@ class AP(Analysis):
 			DataFrame with average firing rate, with multiindex of 
 			["cell", "stimAmp"].
 		'''
-		trialProps = pd.read_hdf(self.projMan.workDir + os.sep + "interm.h5",
-				"/AP/" + protocol + "/trialProps")
-		firingRates = trialProps.groupby(["cell", "stimAmp"]).mean()
-		if len(cells):
-			firingRates = firingRates.loc[(cells), :]
-		if len(stims):
-			firingRates = firingRates.loc[(slice(None), stims), :]
-		# Save the average data in a csv file, could be accessed by 
-		# users for further analysis, also could be used for further
-		# plotting and statistic analysis.
-		firingRates.to_csv(self.projMan.workDir + os.sep + \
-				"fr_" + protocol + ".csv")
-		return firingRates
+		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+		dataF = "/AP/" + protocol + "/trialProps"
+		if dataF in store.keys():
+			trialProps = store[dataF]
+			firingRates = trialProps.groupby(["cell", "stimAmp"]).mean()
+			if len(cells):
+				cells = list(set(cells) &
+						set(self.projMan.getSelectedCells()) &
+						set(trialProps["cell"]))
+				firingRates = firingRates.loc[(cells), :]
+			if len(stims):
+				firingRates = firingRates.loc[(slice(None), stims), :]
+			# Save the average data in a csv file, could be accessed by 
+			# users for further analysis, also could be used for further
+			# plotting and statistic analysis.
+			firingRates= firingRates.merge(self.projMan.getAssignedType(), 
+					"left", "cell")
+			firingRates.to_csv(self.projMan.workDir + os.sep + \
+					"fr_" + protocol + ".csv")
+			return firingRates
+		store.close()
 
 	def aveProps(self, protocol, cells = [], rateRange = [0, 0], 
 			idRange = [0, 0]):
@@ -308,24 +316,33 @@ class AP(Analysis):
 			DataFrame with averge properties for each cell entry.
 		'''
 		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
-		trialProps = store.get("/AP/" + protocol + "/trialProps")
-		apProps = store.get("/AP/" + protocol + "/apProps")
-		apProps.reset_index("id", inplace = True)
+		trialDataF = "/AP/" + protocol + "/trialProps"
+		apDataF = "/AP/" + protocol + "/apProps"
+		if trialDataF in store.keys() and apDataF in store.keys():
+			trialProps = store.get(trialDataF)
+			apProps = store.get(apDataF)
+			apProps.reset_index("id", inplace = True)
+			store.close()
+			if len(cells):
+				cells = list(set(cells) &
+						set(self.projMan.getSelectedCells()) &
+						set(apProps["cell"]))
+				apProps = apProps.loc[(cells), :]
+			if rateRange[0] < rateRange[1]:
+				idx = trialProps.index[(trialProps["rate"] >= rateRange[0]) &
+						(trialProps["rate"] < rateRange[1])]
+				apProps = apProps.loc[idx, :]
+			if idRange[0] < idRange[1]:
+				idx = apProps.index[(apProps["id"] + 1 >= idRange[0]) &
+						(apProps["id"] + 1 < idRange[1])]
+				apProps = apProps.loc[idx, :]
+			aveAPProps = apProps.groupby("cell").mean()
+			aveAPProps= aveAPProps.merge(self.projMan.getAssignedType(), 
+					"left", "cell")
+			aveAPProps.to_csv(self.projMan.workDir + os.sep + \
+					"ap_" + protocol + ".csv")
+			return aveAPProps
 		store.close()
-		if len(cells):
-			apProps = apProps.loc[(cells), :]
-		if rateRange[0] < rateRange[1]:
-			idx = trialProps.index[(trialProps["rate"] >= rateRange[0]) &
-					(trialProps["rate"] < rateRange[1])]
-			apProps = apProps.loc[idx, :]
-		if idRange[0] < idRange[1]:
-			idx = apProps.index[(apProps["id"] + 1 >= idRange[0]) &
-					(apProps["id"] + 1 < idRange[1])]
-			apProps = apProps.loc[idx, :]
-		aveAPProps = apProps.groupby("cell").mean()
-		aveAPProps.to_csv(self.projMan.workDir + os.sep + \
-				"ap_" + protocol + ".csv")
-		return aveAPProps
 
 	def profile(self):
 		'''

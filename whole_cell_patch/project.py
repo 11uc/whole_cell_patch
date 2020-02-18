@@ -236,6 +236,8 @@ class Project(QObject):
 			Dictionary with cells as keys and trial-protocol pairs
 			DataFrame as values.
 		'''
+		# drop empty labels
+		labels.drop(labels.index[labels["protocol"] == ''], inplace = True)
 		if len(cells) == 0:
 			cells = self.getCells()
 		if not hasattr(self, "assignedProt"):
@@ -440,7 +442,7 @@ class Project(QObject):
 					+ ') reading error')
 			raise
 	
-	def iterate(self, protocol = ''):
+	def iterate(self, protocol = None):
 		'''
 		Iterate all trace files in a protocol, yield cell 
 		and trial numbers.
@@ -458,15 +460,37 @@ class Project(QObject):
 		t: int
 			Trial number.
 		'''
-		if len(protocol) and hasattr(self, "assignedProt"):
+		if protocol is not None and len(protocol) and \
+				hasattr(self, "assignedProt"):
 			for c in self.getSelectedCells():
 				if c in self.assignedProt:
 					lb = self.assignedProt[c]
 					for t in lb.index:
 						if lb.loc[t, "protocol"] == protocol:
 							yield (c, t)
-		else:
+		elif protocol is None:
 			cells = self.getCells()
 			for c in cells:
 				for t in self.getTrials([c]):
 					yield (c, t)
+
+	def clear(self):
+		'''
+		Clear current content to make a new project object.
+		'''
+		self.projFile = ''
+		self.name = ''
+		self.baseFolder = ''
+		self.workDir = ''
+		self.formatParam = {"prefix": "Cell",
+			"pad": '4', 
+			"link": '_', 
+			"suffix": ".ibw"}
+		if hasattr(self, "assignedProt"):
+			del self.protocols
+			del self.assignedProt
+		if hasattr(self, "assignedTyp"):
+			del self.types
+			del self.assignedTyp
+		if hasattr(self, "selectedCells"):
+			del self.selectedCells

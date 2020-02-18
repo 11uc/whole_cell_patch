@@ -264,14 +264,23 @@ class SealTest(SignalProc, Analysis):
 		aveSubProps: pandas.DataFrame
 			DataFrame with averge properties for each cell entry.
 		'''
-		stProps = pd.read_hdf(self.projMan.workDir + os.sep + "interm.h5",
-				"/st/" + protocol + "/stProps")
-		if len(cells):
-			stProps = stProps.loc[(cells), :]
-		aveStProps = stProps.groupby("cell").mean()
-		aveStProps.to_csv(self.projMan.workDir + os.sep + \
-				"st_" + protocol + ".csv")
-		return aveStProps
+		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+		dataF = "/sub/" + protocol + "/stProps"
+		if dataF in store.keys():
+			stProps = store[dataF]
+			store.close()
+			if len(cells):
+				cells = list(set(cells) & 
+						set(self.projMan.getSelectedCells()) &
+						set(stProps["cell"]))
+				stProps = stProps.loc[(cells), :]
+			aveStProps = stProps.groupby("cell").mean()
+			aveStProps= aveStProps.merge(self.projMan.getAssignedType(), 
+					"left", "cell")
+			aveStProps.to_csv(self.projMan.workDir + os.sep + \
+					"st_" + protocol + ".csv")
+			return aveStProps
+		store.close()
 
 	def profile(self):
 		'''

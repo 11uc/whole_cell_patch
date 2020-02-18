@@ -317,34 +317,53 @@ class Mini(SignalProc, Analysis):
 		aveMiniProps: pandas.DataFrame
 			DataFrame with averge properties for each cell entry.
 		'''
+		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+		miniDataF = "/mini/" + protocol + "/miniProps"
+		trialDataF = "/mini/" + protocol + "/trialProps"
 		miniProps = pd.read_hdf(self.projMan.workDir + os.sep + "interm.h5",
 				"/mini/" + protocol + "/miniProps")
 		trialProps = pd.read_hdf(self.projMan.workDir + os.sep + "interm.h5",
 				"/mini/" + protocol + "/trialProps")
-		if RinTh > 0 and len(miniProps):
-			try:
-				stProps = pd.read_hdf(self.projMan.workDir + os.sep + "interm.h5",
-						"/st/" + protocol + "/stProps")
-				idx = stProps.index[stProps["Rin"] < RinTh]
-				miniProps.reset_index("id", inplace = True)
-				miniProps.drop("id", axis = 1, inplace = True)
-				miniProps = miniProps.loc[idx, :]
-				trialProps = trialProps.loc[idx, :]
-			except KeyError as e:
-				self.prt(e)
-				self.prt("Seal test not done for these traces yet,",
-						"Rin threshold won't be used.")
-		aveMiniProps = miniProps.groupby("cell").mean()
-		sumTrialProps = trialProps.groupby("cell").sum()
-		sumTrialProps["rate"] = sumTrialProps["num"] / sumTrialProps["dur"]
-		aveMiniProps = aveMiniProps.merge(sumTrialProps, "left", on = "cell")
-		if numTh > 0 and len(miniProps):
-			counts = miniProps.groupby("cell").count()
-			idx = counts.index[counts.iloc[:, 0] > numTh]
-			aveMiniProps = aveMiniProps.loc[idx, :]
-		aveMiniProps.to_csv(self.projMan.workDir + os.sep + \
-				"mini_" + protocol + ".csv")
-		return aveMiniProps
+		if miniDataF in store.keys() and trialDataF in store.keys():
+			miniProps = store[miniDataF]
+			trialProps = store[trialDataF]
+			store.close()
+			if RinTh > 0 and len(miniProps):
+				try:
+					stProps = pd.read_hdf(
+							self.projMan.workDir + os.sep + "interm.h5",
+							"/st/" + protocol + "/stProps")
+					analyzedCells = list(set(miniProps["cell"]))
+					stProps = stProps.loc[(analyzedCells), :]
+					idx = stProps.index[stProps["Rin"] < RinTh]
+					miniProps.reset_index("id", inplace = True)
+					miniProps.drop("id", axis = 1, inplace = True)
+					miniProps = miniProps.loc[idx, :]
+					trialProps = trialProps.loc[idx, :]
+				except KeyError as e:
+					self.prt(e)
+					self.prt("Seal test not done for these traces yet,",
+							"Rin threshold won't be used.")
+			if len(cells):
+				cells = list(set(cells) & 
+						set(self.projMan.getSelectedCells()) &
+						set(miniProps["cell"]))
+				miniProps = miniProps.loc[(cells), :]
+				trialProps = trialProps.loc[(cells), :]
+			aveMiniProps = miniProps.groupby("cell").mean()
+			sumTrialProps = trialProps.groupby("cell").sum()
+			sumTrialProps["rate"] = sumTrialProps["num"] / sumTrialProps["dur"]
+			aveMiniProps = aveMiniProps.merge(sumTrialProps, "left", on = "cell")
+			if numTh > 0 and len(miniProps):
+				counts = miniProps.groupby("cell").count()
+				idx = counts.index[counts.iloc[:, 0] > numTh]
+				aveMiniProps = aveMiniProps.loc[idx, :]
+			aveMiniProps= aveMiniProps.merge(self.projMan.getAssignedType(), 
+					"left", "cell")
+			aveMiniProps.to_csv(self.projMan.workDir + os.sep + \
+					"mini_" + protocol + ".csv")
+			return aveMiniProps
+		store.close()
 
 	def profile(self):
 		'''

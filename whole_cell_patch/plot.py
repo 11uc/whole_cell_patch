@@ -2,6 +2,7 @@
 
 import numpy as np
 import pyqtgraph as pg
+import pyqtgraph.exporters
 
 def plot_trace(trace, sr, smooth_trace = None , points = None, stim = None, \
 		shift = [], cl = 'k', pcl = 'b', win = None, ax = None): 
@@ -66,3 +67,18 @@ def plot_trace(trace, sr, smooth_trace = None , points = None, stim = None, \
 			y2 = trace[int(st / sr)] + 0.1 * yr
 			ax.plot([st, st], [y1, y2], pen = pg.mkPen('k')) 
 	return ax
+
+def save_fig(ax, name):
+	'''
+	Save figures made from plot_trace in a file.
+
+	Parameters
+	----------
+	ax: pyqtgraph.PlotDataItem
+		Axis to save.
+	name: string
+		Name of the output file.
+	'''
+	exporter = pg.exporters.ImageExporter(ax.getPlotItem())
+	exporter.parameters()["width"] = 100
+	exporter.export(name)

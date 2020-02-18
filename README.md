@@ -61,5 +61,6 @@ reuse and sharing easier.
 I'll write it later.
 
 ## TODO
-1. Trial selection based on stimulation for trace plot.
+1. <del>Trial selection based on stimulation for trace plot.</del>
 2. Convenient cell selection input in analysis windows.
+3. Display analysis module functions in the form of tabs to save space.

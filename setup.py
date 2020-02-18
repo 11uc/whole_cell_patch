@@ -7,9 +7,11 @@ def readme():
 		return f.read()
 
 setup(name = "whole_cell_patch",
-      version = '0.1',
+      version = '0.1.1',
       description = ("Analysis scripts used to analyze whole-cell "
 		  "patch clamp recording data."),
+	  long_description = readme(),
+	  long_description_content_type = "text/markdown",
       url = "https://github.com/11uc/whole_cell_patch",
       author = "Chenghao Liu",
       author_email = "liuc@brandeis.edu",
