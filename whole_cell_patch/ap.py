@@ -275,7 +275,7 @@ class AP(Analysis):
 			if len(cells):
 				cells = list(set(cells) &
 						set(self.projMan.getSelectedCells()) &
-						set(trialProps["cell"]))
+						set(trialProps.index.get_level_values["cell"]))
 				firingRates = firingRates.loc[(cells), :]
 			if len(stims):
 				firingRates = firingRates.loc[(slice(None), stims), :]
@@ -326,7 +326,7 @@ class AP(Analysis):
 			if len(cells):
 				cells = list(set(cells) &
 						set(self.projMan.getSelectedCells()) &
-						set(apProps["cell"]))
+						set(apProps.index.get_level_values["cell"]))
 				apProps = apProps.loc[(cells), :]
 			if rateRange[0] < rateRange[1]:
 				idx = trialProps.index[(trialProps["rate"] >= rateRange[0]) &

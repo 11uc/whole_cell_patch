@@ -272,7 +272,7 @@ class SealTest(SignalProc, Analysis):
 			if len(cells):
 				cells = list(set(cells) & 
 						set(self.projMan.getSelectedCells()) &
-						set(stProps["cell"]))
+						set(stProps.index.get_level_values["cell"]))
 				stProps = stProps.loc[(cells), :]
 			aveStProps = stProps.groupby("cell").mean()
 			aveStProps= aveStProps.merge(self.projMan.getAssignedType(), 

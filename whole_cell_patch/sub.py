@@ -292,7 +292,7 @@ class Sub(SignalProc, Analysis):
 			if len(cells):
 				cells = list(set(cells) &
 						set(self.projMan.getSelectedCells()) &
-						set(subProps["cell"]))
+						set(subProps.index.get_level_values["cell"]))
 				subProps = subProps.loc[(cells), :]
 			if stimRange[0] < stimRange[1]:
 				idx = subProps.index[(subProps["stimAmp"] >= stimRange[0]) &

@@ -347,7 +347,7 @@ class Mini(SignalProc, Analysis):
 			if len(cells):
 				cells = list(set(cells) & 
 						set(self.projMan.getSelectedCells()) &
-						set(miniProps["cell"]))
+						set(trialProps.index.get_level_values["cell"]))
 				miniProps = miniProps.loc[(cells), :]
 				trialProps = trialProps.loc[(cells), :]
 			aveMiniProps = miniProps.groupby("cell").mean()
