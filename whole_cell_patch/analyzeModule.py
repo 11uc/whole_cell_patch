@@ -3,7 +3,7 @@
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, pyqtSlot, QEvent
 from PyQt5.QtWidgets import QLabel, QGridLayout, QPushButton, \
 		QLineEdit, QVBoxLayout, QHBoxLayout, QApplication, QDialog, \
-		QComboBox, QMessageBox, QWidget
+		QComboBox, QMessageBox, QWidget, QTabWidget
 import numpy as np
 import pandas as pd
 from .param import ParamMan
@@ -40,32 +40,35 @@ class AnalyzeModuleWindow(QDialog):
 		self.paramMan = paramMan
 		self.name = name
 		self.module = module
-		paramSetBtn = QPushButton("Parameters")
 		topVB = QVBoxLayout(self)
-		self.ctlWd = QWidget()
-		ctlVB = QVBoxLayout(self.ctlWd)
-		ctlVB.addWidget(paramSetBtn)
+		self.ctlWd = QTabWidget(self)
 		self.basic, self.profiles = module.profile()
 		self.paramDg = ParamDialog(self.basic, paramMan.get(
 			"basic_" + name, module.loadDefault("basic")), parent = self)
-		paramSetBtn.clicked.connect(self.paramDg.show)
 		self.paramDg.accepted.connect(self.changeBasic)
 		self.paramGrids = []
 		self.workerThreads = []
 		for i, profile in enumerate(self.profiles):
+			ctlPg = QWidget(self)
+			ctlVB = QVBoxLayout(ctlPg)
 			wth = Worker(self, i)
 			self.workerThreads.append(wth)
 			paramGrid = ParamWidget(profile["param"], 
 					paramMan.get(profile["pname"],
 						module.loadDefault(profile["pname"])), projMan)
 			self.paramGrids.append(paramGrid)
-			methodBtn = QPushButton(profile["name"])
+			# methodBtn = QPushButton(profile["name"])
+			methodBtn = QPushButton("Go")
 			wth.jobDone.connect(self.unlock)
 			methodBtn.clicked.connect(wth.start)
 			methodBtn.clicked.connect(self.lock)
 			ctlVB.addLayout(paramGrid)
 			ctlVB.addWidget(methodBtn)
+			self.ctlWd.addTab(ctlPg, profile["name"])
 		topVB.addWidget(self.ctlWd)
+		paramSetBtn = QPushButton("Parameters")
+		paramSetBtn.clicked.connect(self.paramDg.show)
+		topVB.addWidget(paramSetBtn)
 		stopBtn = QPushButton("Abort")
 		stopBtn.clicked.connect(self.abort)
 		topVB.addWidget(stopBtn)
