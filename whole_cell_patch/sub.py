@@ -59,6 +59,12 @@ class Sub(SignalProc, Analysis):
 				"aveSub": {"protocol": '',
 					"cells": [],
 					"stimRange": [0, 0]},
+				"ivSub": {"protocol": '',
+					"win": [0, 0],
+					"baseWin": [0, 0],
+					"method": "mean",
+					"cells": [],
+					"verbose": 0},
 				"diffSub": {"protocol0": '',
 					"protocol1": '',
 					"cells": [],
@@ -271,7 +277,7 @@ class Sub(SignalProc, Analysis):
 		Parameters
 		----------
 		protocol: string
-			Subfolder/protocol where the spike detection is done.
+			Protocol where the subthreshold recording is done.
 		cells: array_like, optional
 			Ids of cells to include, default is all the cells.
 		stimRange: list, optional
@@ -305,6 +311,75 @@ class Sub(SignalProc, Analysis):
 					"sub_" + protocol + ".csv")
 			return aveSubProps
 		store.close()
+	
+	def iv(self, protocol, win, baseWin = [0, 0], method = "mean", cells = [],
+			verbose = 0):
+		'''
+		Calculate subthreshold trace values in current or voltage clamp steps,
+		output for IV relationship analysis.
+
+		Parameters
+		----------
+		protocol: string
+			Protocol where the subthreshold recording is done.
+		win: list
+			Time windows in which the trace value is calculated, relative 
+			to the start of stimulation.
+		baseWin: list, optional
+			Baseline time window relative to the start of stimulation. If the
+			window size is larger than 0, mean baseline value will be
+			substracted from the trace value. Default not done.
+		method: string, optional
+			Function used to calculate the trace values.
+			mean - Calculate the mean value within the window. Default.
+			max - Maximum value.
+			min - Minimum value.
+		cells: list, optional
+			List of cell ids to output, default 
+		verbose: int, optional
+			How much intermediate information to print. 
+			0 - Print nothing, default.
+			1 - Print cells and trials numbers.
+		'''
+		respVal = []
+		try:
+			for c, t in self.projMan.iterate(protocol):
+				if len(cells) == 0 or c in cells:
+					if verbose:
+						self.prt("Cell", c, "Trial", t)
+					trace, sr, stim = self.projMan.loadWave(c, t)
+					trace = self.thmedfilt(trace, 5, 30e-12)
+					if method == "mean":
+						val = np.mean(trace[int((stim[0] + win[0]) * sr):
+							int((stim[0] + win[1]) * sr)])
+					elif method == "max":
+						val = np.max(trace[int((stim[0] + win[0]) * sr):
+							int((stim[0] + win[1]) * sr)])
+					elif method == "min":
+						val = np.min(trace[int((stim[0] + win[0]) * sr):
+							int((stim[0] + win[1]) * sr)])
+					else:
+						print(method)
+						print("???")
+						val = 0
+					if baseWin[0] < baseWin[1]:
+						val -= np.mean(trace[int((stim[0] + win[0]) * sr):
+							int((stim[0] + win[1]) * sr)])
+					# props = pd.DataFrame({"cell": c, "trial": t, 
+					#	"stim": stim[2], "value": val})
+					props = pd.DataFrame([[c, t, stim[2], val]], 
+							columns = ["cell", "trial", "stim", "value"])
+					props.set_index(["cell", "trial"], inplace = True)
+					respVal.append(props)
+				if self.stopRequested():
+					return 0
+			if len(respVal):
+				respVal = pd.concat(respVal, sort = True)
+				respVal.to_csv(self.projMan.workDir + os.sep + "IV" + 
+						'_' + protocol + ".csv")
+		except IndexError:
+			print("wrong windows")
+			self.prt("Wrong windows.")
 
 	def substract(self, protocol0, protocol1, cells = [], stims = [], toPlot = False,
 			hanging = [0, 0]):
@@ -416,6 +491,15 @@ class Sub(SignalProc, Analysis):
 				"param": {"protocol": "protocol",
 					"cells": "intl",
 					"stimRange": "floatr"}},
+			{"name": "IV", 
+				"pname": "ivSub", 
+				"foo": self.iv,
+				"param": {"protocol": "protocol",
+					"win": "floatr",
+					"baseWin": "floatr",
+					"method": "combo,mean,max,min",
+					"cells": "intl",
+					"verbose": "int"}},
 			{"name": "Substraction", 
 				"pname": "diffSub", 
 				"foo": self.substract,
