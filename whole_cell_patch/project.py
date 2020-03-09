@@ -7,8 +7,10 @@ import pandas as pd
 import pickle
 from igor import binarywave
 from PyQt5.QtCore import QObject, pyqtSlot
+from .process import SignalProc
 
-class Project(QObject):
+
+class Project(QObject, SignalProc):
 	'''
 	Contain functions used to manipulate raw data files.
 
@@ -81,6 +83,7 @@ class Project(QObject):
 					"suffix": ".ibw"}
 		else:
 			self.load(projFile)
+		self.filters = []
 
 	def edit(self, dummy):
 		'''
@@ -387,6 +390,104 @@ class Project(QObject):
 					stims = set(prot.loc[prot["protocol"] == protocol, "stim"])
 		return list(stims)
 
+	def setFilters(self, filters = []):
+		'''
+		Set filters to be applied on the traces when loading them. The
+		filter parameters need to be converted to numertic format. Also
+		check the parameters, if not valid, default will be used and returns
+		0. Otherwise returns 1.
+
+		Parameters
+		----------
+		filters: list
+			List of filters defined in dictionaries. Parameters are
+			in string format.
+
+		Returns
+		-------
+		ret: int
+			0 when invalid paramter detected, 1 normally.
+		'''
+		ret = 1
+		self.filters = []
+		default = self.getDefaultFilters()
+		for f in filters:
+			name = f["name"]
+			fc = {}
+			try:
+				if name == "median":
+					fc["name"] = name
+					fc["winSize"] = int(f["winSize"])
+					fc["threshold"] = float(f["threshold"])
+				else:
+					fc["name"] = name
+					for k, v in f.items():
+						if k != "name":
+							fc[k] = float(v)
+					if (name == "bessel,bandpass" or \
+							name == "butter,bandpass") and \
+							fc["freq_high"] <= fc["freq_low"]:
+								ret = 0
+								for d in default:
+									if d["name"] == name:
+										fc = d
+			except ValueError as e:
+				ret = 0
+				for d in default:
+					if d["name"] == name:
+						fc = d
+			self.filters.append(fc)
+		return ret
+
+	def getDefaultFilters(self, form = "num"):
+		'''
+		Define available filter types and default parameters.
+
+		Paramters
+		---------
+		form: str
+			Format of the filter parameters.
+			"num" - numeric, for setting.
+			"str" - string, for displaying.
+		'''
+		if form == "num":
+			filters = [{"name": "median", 
+				"winSize": 5, 
+				"threshold": 30e-12}, 
+				{"name": "butter,lowpass",
+					"freq": 500},
+				{"name": "butter,highpass",
+					"freq": 2000},
+				{"name": "butter,bandpass",
+					"freq_low": 500,
+					"freq_high": 2000},
+				{"name": "bessel,lowpass",
+					"freq": 500},
+				{"name": "bessel,highpass",
+					"freq": 2000},
+				{"name": "bessel,bandpass",
+					"freq_low": 500,
+					"freq_high": 2000}]
+		else:
+			filters = [{"name": "median", 
+				"winSize": '5', 
+				"threshold": "30e-12"}, 
+				{"name": "butter,lowpass",
+					"freq": "500"},
+				{"name": "butter,highpass",
+					"freq": "2000"},
+				{"name": "butter,bandpass",
+					"freq_low": "500",
+					"freq_high": "2000"},
+				{"name": "bessel,lowpass",
+					"freq": "500"},
+				{"name": "bessel,highpass",
+					"freq": "2000"},
+				{"name": "bessel,bandpass",
+					"freq_low": "500",
+					"freq_high": "2000"}]
+		return filters
+		
 	def loadWave(self, cell, trial):
 		'''
 		Load trace from an igor data file, as well as sampleing rate 
@@ -435,6 +536,18 @@ class Project(QObject):
 					data['wave']['note'].decode())
 			if(searched != None):
 				stim_start = float(searched.group(1))
+			if len(self.filters):
+				for f in self.filters:
+					names = f["name"].split(',')
+					if len(names) == 1:
+						trace = self.thmedfilt(trace, f["winSize"], 
+								f["threshold"])
+					elif names[1] == "bandpass":
+						trace = self.smooth(trace, sr, 
+								[f["freq_low"], f["freq_high"]], names[0], names[1])
+					else:
+						trace = self.smooth(trace, sr, 
+								f["freq"], names[0], names[1])
 			return (trace, sr, [stim_start, stim_dur, stim_amp])
 		except IOError:
 			print('Igor wave file (' + 

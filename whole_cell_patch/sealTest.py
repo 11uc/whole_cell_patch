@@ -7,6 +7,7 @@
 # of stimulation.
 
 import os
+import pdb
 import numpy as np
 import pandas as pd
 from . import plot
@@ -132,10 +133,10 @@ class SealTest(SignalProc, Analysis):
 		# Steady state current is the final steady state after sag
 		# current stablized.
 		steadyState = np.mean(trace[int(t_steady1 * sr):
-			int(t_steady2 * sr)]) / scale
+			int(t_steady2 * sr)])
 		# Baseline current before stimulation 
 		baseline = np.mean(trace[int(t_baseline1 * sr):
-			int(t_baseline2 * sr)]) / scale
+			int(t_baseline2 * sr)])
 
 		mf = None  # medium fitting threshold
 		trapped = True
@@ -154,6 +155,7 @@ class SealTest(SignalProc, Analysis):
 					self.prt('I0 = ', x0)
 					self.prt('tau = ', tau)
 					self.prt('Is = ', xs)
+					self.prt('baseline = ', baseline)
 
 					pt1 = int(t_0 * sr)
 					pt2 = int(t_2 * sr)
@@ -265,7 +267,7 @@ class SealTest(SignalProc, Analysis):
 			DataFrame with averge properties for each cell entry.
 		'''
 		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
-		dataF = "/sub/" + protocol + "/stProps"
+		dataF = "/st/" + protocol + "/stProps"
 		if dataF in store.keys():
 			stProps = store[dataF]
 			store.close()

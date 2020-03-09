@@ -36,7 +36,7 @@ class SignalProc:
 		z = np.where(thresh < abs(y - x), y, x)
 		return z
 
-	def smooth(self, x, sr, band):
+	def smooth(self, x, sr, band, ftype, btype):
 		'''
 		Lowpass filter the signal with Butterworth filter to smooth it
 
@@ -46,8 +46,12 @@ class SignalProc:
 			Signal trace.
 		sr: float
 			Sampling rate.
-		band: float
-			Criticle freqency for lowpass filter.
+		band: float or list
+			Critical freqency for lowpass filter.
+		ftype: string, optional
+			Type of filters. "butter", "bessel".
+		btype: string, optional
+			Bind type. "bandpass", "lowpass", "highpass"
 
 		Returns
 		-------
@@ -55,8 +59,12 @@ class SignalProc:
 				Smoothed trace.
 		'''
 
-		b, a = signal.iirfilter(4, band / sr * 2, btype = 'lowpass', 
-				ftype = 'butter')
+		if btype == "lowpass" or btype == "highpass":
+			b, a = signal.iirfilter(4, band / sr * 2, btype = btype,
+					ftype = ftype)
+		else:
+			b, a = signal.iirfilter(4, [b / sr * 2 for b in band], 
+					btype = btype, ftype = ftype)
 		y = signal.filtfilt(b, a, x)
 		return y
 

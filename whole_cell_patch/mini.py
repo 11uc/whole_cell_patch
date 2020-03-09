@@ -124,7 +124,8 @@ class Mini(SignalProc, Analysis):
 		p = np.polyfit(np.arange(len(x)), x, 1)
 		x = (x - np.polyval(p, np.arange(len(x))))
 		# low pass filter
-		fx = self.smooth(x, sr, self.miniParam['lowBandWidth'])
+		fx = self.smooth(x, sr, self.miniParam['lowBandWidth'], 
+				"butter", "lowpass")
 		dfx = np.diff(fx) * sr
 		peaks = (0 < dfx[0:-1]) & (dfx[1:] < 0)
 		troughs = (dfx[0:-1] < 0) & (0 < dfx[1:])

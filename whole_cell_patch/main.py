@@ -20,6 +20,7 @@ from .projectDialog import ProjectDialog
 from .selectCellDialog import SelectCellDialog
 from .assignDialog import AssignDialog
 from .plotWindow import PlotWindow, SimplePlotWindow
+from .filterWin import FilterWin
 
 class wcpMainWindow(QMainWindow):
 	'''
@@ -34,6 +35,8 @@ class wcpMainWindow(QMainWindow):
 		self.selectDg = SelectCellDialog(self)
 		self.selectDg.accepted.connect(self.disconnectSelectDg)
 		self.selectDg.rejected.connect(self.disconnectSelectDg)
+		self.filterDg = FilterWin(self.proj.getDefaultFilters("str"), 
+				parent = self)
 		self.plotWindows = []
 		self.analyzeWindows = {}
 		self.initUI()
@@ -53,6 +56,7 @@ class wcpMainWindow(QMainWindow):
 		menubar.setNativeMenuBar(False)
 		fileMenu = menubar.addMenu("&File")
 		self.analysisMenu = menubar.addMenu("&Analysis")
+		processMenu = menubar.addMenu("Process")
 
 		projNewAct = QAction("New project", self)
 		projLoadAct = QAction("Load project", self)
@@ -62,6 +66,7 @@ class wcpMainWindow(QMainWindow):
 		exitAct.setShortcut("Ctrl + Q")
 		paramImportAct = QAction("Import parameters", self)
 		paramExportAct = QAction("Export parameters", self)
+		filterAct = QAction("Filtering", self)
 		
 		fileMenu.addAction(projNewAct)
 		fileMenu.addAction(projLoadAct)
@@ -71,6 +76,7 @@ class wcpMainWindow(QMainWindow):
 		self.analysisMenu.addAction(paramImportAct)
 		self.analysisMenu.addAction(paramExportAct)
 		self.analysisMenu.addSeparator()
+		processMenu.addAction(filterAct)
 
 		self.projNameLb = QLabel("Name:")
 		self.workDirLb = QLabel("Working Directory:")
@@ -154,6 +160,8 @@ class wcpMainWindow(QMainWindow):
 		appendBtn.clicked.connect(self.appDisp)
 		paramImportAct.triggered.connect(self.importParams)
 		paramExportAct.triggered.connect(self.exportParams)
+		filterAct.triggered.connect(self.filterDg.show)
+		self.filterDg.filterApplied.connect(self.setFilters)
 	
 	def saveProj(self, mode = "save"):
 		'''
@@ -197,6 +205,7 @@ class wcpMainWindow(QMainWindow):
 				if len(target):
 					self.proj.load(target)
 					self.updateDisp()
+					self.filterDg.applyFilters(0)  # apply filters to this project
 			except pickle.UnpicklingError:
 				QMessageBox.warning(self, "Warning", "Wrong file format.",
 						QMessageBox.Ok)
@@ -596,3 +605,17 @@ class wcpMainWindow(QMainWindow):
 			if m.busy:
 				return False
 		return True
+
+	def setFilters(self, fs):
+		'''
+		Set filters to be applied when loading traces.
+
+		Parameters
+		----------
+		fs: list
+			List of dictionaries with user defined filter information.
+		'''
+		ret = self.proj.setFilters(fs)
+		if not ret:
+			QMessageBox.warning(self, "Warning", 
+					"Wrong filter format, default used.", QMessageBox.Ok)
