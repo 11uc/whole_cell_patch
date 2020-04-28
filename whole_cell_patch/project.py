@@ -192,7 +192,6 @@ class Project(QObject, SignalProc):
 			cells and exc is a list of excluded cells.
 		'''
 		self.selectedCells = sorted(cells[0])
-		print(self.selectedCells)
 		# If cell types have been assigned before, adjust it
 		# by keeping only the newly selected cells and assign unknown
 		# type to those that are not assigned before.
@@ -221,15 +220,23 @@ class Project(QObject, SignalProc):
 	def assignProtocol(self, cells, labels):
 		'''
 		Assign trials to different protocols for different analysis.
+		Take labeled trial data or labeled stimulation type name
+		data.
 
 		Parameters
 		----------
 		cells: array_like
 			Id of cells to assign protocols. When it has length of 0,
 			all the cells in the baseFolder will be considered.
-		labels: pandas.DataFrame
-			Trial and protocol pairs in a DataFrame with two columns,
-			"trial" and "protocol", "trial" as index.
+		labels: pandas.DataFrame or dict
+			pandas.DataFrame - 
+				Trial and protocol pairs in a DataFrame with two columns,
+				"trial" and "protocol", "trial" as index. The same
+				trial-protocol association will be applied to all cells.
+			dict - 
+				Dictionary with cell ids as keys and trial-protocol pair
+				data in a DataFrame as values. Specify protocols for
+				cells separatedly.
 
 		Attributes
 		----------
@@ -240,26 +247,60 @@ class Project(QObject, SignalProc):
 			DataFrame as values.
 		'''
 		# drop empty labels
-		labels.drop(labels.index[labels["protocol"] == ''], inplace = True)
+		if type(labels) is not dict:
+			labels.drop(labels.index[labels["protocol"] == ''], inplace = True)
 		if len(cells) == 0:
 			cells = self.getCells()
 		if not hasattr(self, "assignedProt"):
 			self.assignedProt = {}
 		for c in cells:
-			cTrials = self.getTrials([c])
-			labeled = list(set(cTrials) & set(labels.index))
-			prot = labels.loc[labeled, :]
-			# record the simulation intensity of the trials as well.
-			prot["stim"] = np.nan
-			for t in labeled:
-				_, _, stim = self.loadWave(c, t)
-				prot.loc[t, "stim"] = stim[2]
-			self.assignedProt[c] = prot
+			if type(labels) is dict:
+				self.assignedProt[c] = labels[c]
+			else:
+				cTrials = self.getTrials([c])
+				labeled = list(set(cTrials) & set(labels.index))
+				prot = labels.loc[labeled, :]
+				# record the simulation intensity of the trials as well.
+				prot["stim"] = np.nan
+				for t in labeled:
+					_, _, stim = self.loadWave(c, t)
+					prot.loc[t, "stim"] = stim[2]
+				self.assignedProt[c] = prot
 		# update protocols by checking again all protocl tables
 		self.protocols = set()
 		for c, df in self.assignedProt.items():
 			self.protocols = self.protocols | set(df["protocol"])
 	
+	def getStimType(self, cells, trials):
+		'''
+		Returns stimulation type for trials for setting protocol based 
+		on stimulation type.
+
+		Parameters
+		----------
+		cells: array_like
+			Cells of which the stimulation type will be returned.
+		trials: array_like
+			Trials of which the stimulation type will be returned.
+
+		Returns
+		-------
+		stimTypes: pandas.DataFrame
+			Cells and trials as index, one column with stimulation
+			amplitude and one column with the stimulation type.
+		'''
+		stimTypes = []
+		for c in cells:
+			for t in trials:
+				try:
+					trace, sr, stim = self.loadWave(c, t)
+					stimTypes.append([c, t, stim[2], stim[3]])
+				except IOError:
+					pass
+		stimTypes = pd.DataFrame(stimTypes, 
+				columns = ("cell", "trial", "stim", "type"))
+		return stimTypes
+
 	def getProtocols(self):
 		'''
 		Get all the protocols specified in this project. If not yet,
@@ -513,6 +554,7 @@ class Project(QObject, SignalProc):
 			
 		try:
 			sr, stim_amp, stim_dur, stim_start = 10000, 0, 0, 0
+			stim_type = ''
 			data = binarywave.load(self.baseFolder + os.sep + 
 					self.genName(cell, trial))
 			trace = data['wave']['wData']
@@ -531,11 +573,16 @@ class Project(QObject, SignalProc):
 					data['wave']['note'].decode())
 			if(searched != None):
 				stim_dur = float(searched.group(1))
-			# Search for stimulation strat
+			# Search for stimulation start
 			searched = re.search(r';StepStart\(s\):(.+?);', 
 					data['wave']['note'].decode())
 			if(searched != None):
 				stim_start = float(searched.group(1))
+			# Search for stimulation type
+			searched = re.search(r';StimProtocol:(.+?);', 
+					data['wave']['note'].decode())
+			if(searched != None):
+				stim_type = searched.group(1)
 			if len(self.filters):
 				for f in self.filters:
 					names = f["name"].split(',')
@@ -548,7 +595,7 @@ class Project(QObject, SignalProc):
 					else:
 						trace = self.smooth(trace, sr, 
 								f["freq"], names[0], names[1])
-			return (trace, sr, [stim_start, stim_dur, stim_amp])
+			return (trace, sr, [stim_start, stim_dur, stim_amp, stim_type])
 		except IOError:
 			print('Igor wave file (' + 
 					self.baseFolder + os.sep + self.genName(cell, trial)
@@ -586,6 +633,53 @@ class Project(QObject, SignalProc):
 			for c in cells:
 				for t in self.getTrials([c]):
 					yield (c, t)
+	
+	def getTrialTable(self, protocol, cells = [], trials = [],
+			types = [], stims = []):
+		'''
+		Return a table with type, stimulation amplitude, cell id and
+		trial id as columns. Each row is a trial.
+
+		Parameters
+		----------
+		protocol: string
+			Protocol where the subthreshold recording is done.
+		cells: array_like, optional
+			Ids of cells to include. By default include all the cells.
+		trials: array_like, optional
+			Ids of trials to include. By default include all trials.
+		types: array_like, optional
+			Types of cells to include. By default include all the cells.
+		stims: array_like, optional
+			Stimulation amplitudes with which trials will be included.
+			By default include all trials.
+
+		Returns
+		-------
+		df: pandas.DataFrame
+			Table with trial labels, "type", "stim", "cell" and "trial".
+		'''
+		df = []
+		if len(protocol) and hasattr(self, "assignedProt"):
+			if len(cells):
+				cells = list(set(cells) & set(self.getSelectedCells()))
+			else:
+				cells = self.getSelectedCells()
+			for c in cells:
+				if c in self.assignedProt and ((not len(types)) or \
+						self.assignedTyp.loc[c, "type"] in types):
+					lb = self.assignedProt[c]
+					if len(trials):
+						ctrials = np.unique(trials + list(lb.index))
+					else:
+						ctrials = lb.index
+					for t in ctrials:
+						if lb.loc[t, "protocol"] == protocol and \
+								((not len(stims)) or lb.loc[t, "stim"] in stims):
+							df.append([self.assignedTyp.loc[c, "type"], 
+								lb.loc[t, "stim"], c, t])
+		df = pd.DataFrame(df, columns = ["type", "stim", "cell", "trial"])
+		return df
 
 	def clear(self):
 		'''

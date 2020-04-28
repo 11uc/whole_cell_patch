@@ -17,7 +17,7 @@ class Sub(SignalProc, Analysis):
 	potential and sag ratio.
 	'''
 
-	def __init__(self, inTxtWidget, projMan = None):
+	def __init__(self, inTxtWidget, projMan = None, parent = None):
 		'''
 		Load time parameters for memebrane capacitor charging fitting 
 		and for sag analysis from the grand parameter file and raw data 
@@ -32,11 +32,8 @@ class Sub(SignalProc, Analysis):
 			Object containing information about the project including 
 			raw data and some parameters.
 		'''
-		self.projMan = projMan
-		# default analysis parameters
-		self.setBasic(self.loadDefault("basic"))
 		SignalProc.__init__(self)
-		Analysis.__init__(self, inTxtWidget)
+		Analysis.__init__(self, inTxtWidget, projMan, parent)
 	
 	def loadDefault(self, name):
 		'''
@@ -165,9 +162,10 @@ class Sub(SignalProc, Analysis):
 					fit_trace = [self.fit_fun(i, x0, tau, xs) 
 							for i in (plot_time - t_1)]
 					if tau < minTau:
-						ax = plot.plot_trace(plot_trace, sr)
+						ax = plot.plot_trace_buffer(plot_trace, sr)
 					else:
-						ax = plot.plot_trace(plot_trace, sr, fit_trace)
+						ax = plot.plot_trace_buffer(plot_trace, sr, 
+								smooth_trace = fit_trace)
 					self.plt(ax)
 					ans1 = self.ipt("Apply/Decrease median filter (m),",
 							"keep current fitting result (k) or",
@@ -298,15 +296,14 @@ class Sub(SignalProc, Analysis):
 			if len(cells):
 				cells = list(set(cells) &
 						set(self.projMan.getSelectedCells()) &
-						set(subProps.index.get_level_values["cell"]))
+						set(subProps.index.get_level_values("cell")))
 				subProps = subProps.loc[(cells), :]
 			if stimRange[0] < stimRange[1]:
-				idx = subProps.index[(subProps["stimAmp"] >= stimRange[0]) &
-						(subProps["stimAmp"] < stimRange[1])]
-				subProps = subProps.loc[idx, :]
+				subProps = subProps.iloc[list((subProps["stimAmp"] >= stimRange[0]) &
+						(subProps["stimAmp"] < stimRange[1])), :]
 			aveSubProps = subProps.groupby("cell").mean()
-			aveSubProps= aveSubProps.merge(self.projMan.getAssignedType(), 
-					"left", "cell")
+			aveSubProps= aveSubProps.join(self.projMan.getAssignedType(), 
+					"cell", "left")
 			aveSubProps.to_csv(self.projMan.workDir + os.sep + \
 					"sub_" + protocol + ".csv")
 			return aveSubProps
@@ -348,7 +345,6 @@ class Sub(SignalProc, Analysis):
 					if verbose:
 						self.prt("Cell", c, "Trial", t)
 					trace, sr, stim = self.projMan.loadWave(c, t)
-					trace = self.thmedfilt(trace, 5, 30e-12)
 					if method == "mean":
 						val = np.mean(trace[int((stim[0] + win[0]) * sr):
 							int((stim[0] + win[1]) * sr)])
@@ -363,8 +359,8 @@ class Sub(SignalProc, Analysis):
 						print("???")
 						val = 0
 					if baseWin[0] < baseWin[1]:
-						val -= np.mean(trace[int((stim[0] + win[0]) * sr):
-							int((stim[0] + win[1]) * sr)])
+						val -= np.mean(trace[int((stim[0] + baseWin[0]) * sr):
+							int((stim[0] + baseWin[1]) * sr)])
 					# props = pd.DataFrame({"cell": c, "trial": t, 
 					#	"stim": stim[2], "value": val})
 					props = pd.DataFrame([[c, t, stim[2], val]], 
@@ -375,6 +371,8 @@ class Sub(SignalProc, Analysis):
 					return 0
 			if len(respVal):
 				respVal = pd.concat(respVal, sort = True)
+				respVal = respVal.join(self.projMan.getAssignedType(), 
+						"cell", "left")
 				respVal.to_csv(self.projMan.workDir + os.sep + "IV" + 
 						'_' + protocol + ".csv")
 		except IndexError:
@@ -447,9 +445,9 @@ class Sub(SignalProc, Analysis):
 					else:
 						plot_trace = diff
 					if ax is None:
-						ax = plot.plot_trace(plot_trace, sr)
+						ax = plot.plot_trace_buffer(plot_trace, sr)
 					else:
-						plot.plot_trace(plot_trace, sr, ax = ax)
+						plot.plot_trace_buffer(plot_trace, sr, ax = ax)
 			if toPlot:
 				'''
 				plot.save_fig(ax, self.projMan.workDir + os.sep + \

@@ -13,7 +13,7 @@ class AP(Analysis):
 	Analyzing properties related to action potentials, including
 	AHP and firing rate.
 	'''
-	def __init__(self, inTxtWidget, projMan = None):
+	def __init__(self, inTxtWidget, projMan = None, parent = None):
 		'''
 		Load spike detection parameters from the grand parameter file
 		and raw data information.
@@ -26,10 +26,7 @@ class AP(Analysis):
 			Object containing information about the project including 
 			raw data and some parameters.
 		'''
-		self.projMan = projMan
-		# default spike detection parameters
-		self.setBasic(self.loadDefault("basic"))
-		super().__init__(inTxtWidget)
+		super().__init__(inTxtWidget, projMan, parent)
 
 	def loadDefault(self, name):
 		'''
@@ -53,7 +50,9 @@ class AP(Analysis):
 				"aveAP": {"protocol": '',
 					"cells": [1],
 					"rateRange": [0., 0.],
-					"idRange": [0, 0]}}
+					"idRange": [0, 0]},
+				"rheo": {"protocol": '',
+					"cells": []}}
 		return default[name]
 	
 	def setBasic(self, param):
@@ -134,7 +133,7 @@ class AP(Analysis):
 		apProps["starts"] = starts  # indices of begin of peaks
 		# plot trace with spike start points marked if needed
 		if plotting:
-			ax = plot.plot_trace(trace, sr, points = np.array(starts) / sr)
+			ax = plot.plot_trace_buffer(trace, sr, points = np.array(starts) / sr)
 			self.plt(ax)
 			ans = self.ipt("Good? (y/n, y to continue, n to abort)")
 			if ans == 'n' or ans == 'N':
@@ -275,17 +274,18 @@ class AP(Analysis):
 			if len(cells):
 				cells = list(set(cells) &
 						set(self.projMan.getSelectedCells()) &
-						set(trialProps.index.get_level_values["cell"]))
+						set(trialProps.index.get_level_values("cell")))
 				firingRates = firingRates.loc[(cells), :]
 			if len(stims):
 				firingRates = firingRates.loc[(slice(None), stims), :]
 			# Save the average data in a csv file, could be accessed by 
 			# users for further analysis, also could be used for further
 			# plotting and statistic analysis.
-			firingRates= firingRates.merge(self.projMan.getAssignedType(), 
-					"left", "cell")
+			firingRates= firingRates.join(self.projMan.getAssignedType(), "cell",
+					"left")
 			firingRates.to_csv(self.projMan.workDir + os.sep + \
 					"fr_" + protocol + ".csv")
+			store.close()
 			return firingRates
 		store.close()
 
@@ -322,26 +322,68 @@ class AP(Analysis):
 			trialProps = store.get(trialDataF)
 			apProps = store.get(apDataF)
 			apProps.reset_index("id", inplace = True)
+			apProps["id"] = apProps["id"].astype(int)
 			store.close()
 			if len(cells):
 				cells = list(set(cells) &
 						set(self.projMan.getSelectedCells()) &
-						set(apProps.index.get_level_values["cell"]))
+						set(apProps.index.get_level_values("cell")))
 				apProps = apProps.loc[(cells), :]
 			if rateRange[0] < rateRange[1]:
 				idx = trialProps.index[(trialProps["rate"] >= rateRange[0]) &
 						(trialProps["rate"] < rateRange[1])]
-				apProps = apProps.loc[idx, :]
-			if idRange[0] < idRange[1]:
+				if len(idx):
+					apProps = apProps.loc[idx, :]
+				else:
+					apProps = pd.DataFrame([], columns = apProps.columns,
+							index = idx)
+			if idRange[0] < idRange[1] and len(apProps):
+				'''
 				idx = apProps.index[(apProps["id"] + 1 >= idRange[0]) &
 						(apProps["id"] + 1 < idRange[1])]
-				apProps = apProps.loc[idx, :]
-			aveAPProps = apProps.groupby("cell").mean()
-			aveAPProps= aveAPProps.merge(self.projMan.getAssignedType(), 
-					"left", "cell")
+				if len(idx):
+					apProps = apProps.loc[idx, :]
+				else:
+					apProps = pd.DataFrame([], columns = apProps.columns,
+							index = idx)
+				'''
+				apProps = apProps.iloc[list((apProps["id"] + 1 >= idRange[0]) &
+						(apProps["id"] + 1 < idRange[1])), :]
+			if len(apProps):
+				aveAPProps = apProps.groupby("cell").mean()
+				aveAPProps= aveAPProps.merge(self.projMan.getAssignedType(), 
+						"left", "cell")
+			else:
+				aveAPProps = apProps
 			aveAPProps.to_csv(self.projMan.workDir + os.sep + \
 					"ap_" + protocol + ".csv")
 			return aveAPProps
+		store.close()
+	
+	def rheobase(self, protocol, cells = []):
+		'''
+		Find the rheobase, minimum amount of current required for the
+		cell to fire, for each cell.
+
+		Parameters
+		----------
+		protocol: string
+			Protocol where the spike detection is done.
+		cells: array_like, optional
+			Ids of cells to include, default is all the cells.
+		'''
+		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+		dataF = "/AP/" + protocol + "/trialProps"
+		if dataF in store.keys():
+			trialProps = store[dataF]
+			rb = trialProps.loc[trialProps["rate"] > 0].groupby("cell").min()
+			if len(cells):
+				cells = list(set(cells) &
+						set(self.projMan.getSelectedCells()) &
+						set(trialProps.index.get_level_values("cell")))
+				rb = rb.loc[(cells), :]
+			rb.to_csv(self.projMan.workDir + os.sep + \
+					"rheo_" + protocol + ".csv")
 		store.close()
 
 	def profile(self):
@@ -375,5 +417,10 @@ class AP(Analysis):
 				"param": {"protocol": "protocol",
 					"cells": "intl",
 					"rateRange": "floatr",
-					"idRange": "intr"}}]
+					"idRange": "intr"}},
+			{"name": "Rheobase", 
+				"pname": "rheo", 
+				"foo": self.rheobase,
+				"param": {"protocol": "protocol",
+					"cells": "intl"}}]
 		return basicParam, prof

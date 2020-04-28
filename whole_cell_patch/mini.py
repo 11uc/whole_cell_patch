@@ -16,22 +16,21 @@ class Mini(SignalProc, Analysis):
 	decay time constant, amplitude and frequency.
 	'''
 
-	def __init__(self, inTxtWidget, projMan = None):
+	def __init__(self, inTxtWidget, projMan = None, parent = None):
 		'''
 		Load spike detection parameters from the grand parameter file
 		and raw data information.
 
 		Parameters
 		----------
+		inTxtWidget: QLineEdit
+			Input line widget of the main window.
 		projMan: Project
 			Object containing information about the project including 
 			raw data and some parameters.
 		'''
-		self.projMan = projMan
-		# default mini analysis parameters
-		self.setBasic(self.loadDefault("basic"))
 		SignalProc.__init__(self)
-		Analysis.__init__(self, inTxtWidget)
+		Analysis.__init__(self, inTxtWidget, projMan, parent)
 
 	def loadDefault(self, name):
 		'''
@@ -200,10 +199,11 @@ class Mini(SignalProc, Analysis):
 												"res: ", res, 
 												"time:", lastRise / sr)
 										self.prt(self.miniParam["residual"])
-										ax = plot.plot_trace(
+										ax = plot.plot_trace_buffer(
 												x[lastRise:ptrInds[i + 1]], sr,
-												fx[lastRise:ptrInds[i + 1]])
-										plot.plot_trace(
+												smooth_trace = \
+														fx[lastRise:ptrInds[i + 1]])
+										plot.plot_trace_buffer(
 												fun(np.arange(len(sample)), *popt),
 												sr, ax = ax, cl = 'r')
 										self.plt(ax)
@@ -228,14 +228,14 @@ class Mini(SignalProc, Analysis):
 		miniProps = pd.DataFrame({"peak": miniPeaks, "rise": miniRises,
 			"amp": miniAmps, "decay": miniDecayTaus})
 		if verbose > 0:
-			ax0 = plot.plot_trace(x, sr, fx)
-			ax1 = plot.plot_trace(fx, sr, pcl = 'r', 
+			ax0 = plot.plot_trace_buffer(x, sr, smooth_trace = fx)
+			ax1 = plot.plot_trace_buffer(fx, sr, pcl = 'r', 
 					points = np.nonzero(rises)[0] / sr)
-			plot.plot_trace(fx, sr, pcl = None, ax = ax1,
+			plot.plot_trace_buffer(fx, sr, pcl = None, ax = ax1,
 					points = np.nonzero(peaks)[0] / sr)
-			plot.plot_trace(fx, sr, pcl = 'b', ax = ax1,
+			plot.plot_trace_buffer(fx, sr, pcl = 'b', ax = ax1,
 					points = miniRises)
-			ax2 = plot.plot_trace(dfx, sr)
+			ax2 = plot.plot_trace_buffer(dfx, sr)
 			self.clearPlt()
 			self.plt(ax0, 0)
 			self.plt(ax1, 1)
@@ -348,7 +348,7 @@ class Mini(SignalProc, Analysis):
 			if len(cells):
 				cells = list(set(cells) & 
 						set(self.projMan.getSelectedCells()) &
-						set(trialProps.index.get_level_values["cell"]))
+						set(trialProps.index.get_level_values("cell")))
 				miniProps = miniProps.loc[(cells), :]
 				trialProps = trialProps.loc[(cells), :]
 			aveMiniProps = miniProps.groupby("cell").mean()
@@ -359,8 +359,8 @@ class Mini(SignalProc, Analysis):
 				counts = miniProps.groupby("cell").count()
 				idx = counts.index[counts.iloc[:, 0] > numTh]
 				aveMiniProps = aveMiniProps.loc[idx, :]
-			aveMiniProps= aveMiniProps.merge(self.projMan.getAssignedType(), 
-					"left", "cell")
+			aveMiniProps= aveMiniProps.join(self.projMan.getAssignedType(), 
+					"cell", "left")
 			aveMiniProps.to_csv(self.projMan.workDir + os.sep + \
 					"mini_" + protocol + ".csv")
 			return aveMiniProps

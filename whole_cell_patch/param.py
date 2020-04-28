@@ -51,8 +51,8 @@ class ParamMan(object):
 			with open(paramFile, 'r') as f:
 				tmp = yaml.load(f, Loader = yaml.FullLoader)
 				for k in self.params:
-					if k in tmp:
-						tmp[k] = self.params[k]
+					# if k in tmp:
+					tmp[k] = self.params[k]
 		except IOError:
 			tmp = self.params
 		try:

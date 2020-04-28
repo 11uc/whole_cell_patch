@@ -22,7 +22,7 @@ class SealTest(SignalProc, Analysis):
 	potential and sag ratio.
 	'''
 
-	def __init__(self, inTxtWidget, projMan = None):
+	def __init__(self, inTxtWidget, projMan = None, parent = None):
 		'''
 		Load time parameters for memebrane capacitor charging fitting 
 		and for sag analysis from the grand parameter file and raw data 
@@ -37,11 +37,8 @@ class SealTest(SignalProc, Analysis):
 			Object containing information about the project including 
 			raw data and some parameters.
 		'''
-		self.projMan = projMan
-		# default analysis parameters
-		self.setBasic(self.loadDefault("basic"))
 		SignalProc.__init__(self)
-		Analysis.__init__(self, inTxtWidget)
+		Analysis.__init__(self, inTxtWidget, projMan, parent)
 	
 	def loadDefault(self, name):
 		'''
@@ -145,6 +142,9 @@ class SealTest(SignalProc, Analysis):
 		while trapped:
 			if mf is not None:
 				trace = self.thmedfilt(trace, 5, mf)
+				if clamp == 'v':
+					t_1 = np.argmax(trace[int(t_0 * sr):int(t_steady1 * sr)] * \
+							np.sign(amp)) / sr + t_0
 			try:
 				# fit the exponential decay after the voltage step
 				# Use the current of the fitted curve at the peak time as I0
@@ -160,16 +160,18 @@ class SealTest(SignalProc, Analysis):
 					pt1 = int(t_0 * sr)
 					pt2 = int(t_2 * sr)
 					plot_time = np.arange(pt1, pt2) / sr
-					if mf is None:
-						plot_trace = np.array(trace[pt1:pt2])
-					else:
-						plot_trace = self.thmedfilt(np.array(trace[pt1:pt2]), 5, mf)
-					fit_trace = [self.fit_fun(i, x0, tau, xs) 
-							for i in (plot_time - t_1)]
+					# if mf is None:
+					plot_trace = np.array(trace[pt1:pt2])
+					# else:
+						# plot_trace = self.thmedfilt(np.array(trace[pt1:pt2]), 5, mf)
 					if tau < minTau:
-						ax = plot.plot_trace(plot_trace, sr)
+						ax = plot.plot_trace_buffer(plot_trace, sr)
 					else:
-						ax = plot.plot_trace(plot_trace, sr, fit_trace)
+						fit_trace = [baseline] * (int(t_1 * sr) - pt1) + \
+								[self.fit_fun(i, x0, tau, xs) 
+										for i in (plot_time - t_1)]
+						ax = plot.plot_trace_buffer(plot_trace, sr, 
+								smooth_trace = fit_trace)
 					self.plt(ax)
 					ans1 = self.ipt("Apply/Decrease median filter (m),",
 							"keep current fitting result (k) or",
@@ -192,11 +194,11 @@ class SealTest(SignalProc, Analysis):
 		if trapped:  # fit accepted
 			if clamp == 'v':
 				Rs = amp / (x0 - baseline)
-				Rin = amp / (xs - baseline) - Rs
+				Rin = amp / (steadyState - baseline) - Rs
 				Cm = tau * (Rin + Rs) / Rin / Rs
 			elif clamp == 'i':
 				Rs = (x0 - baseline) / amp
-				Rin = (xs - baseline) / amp - Rs
+				Rin = (steadyState - baseline) / amp - Rs
 				Cm = tau / Rin
 		else:
 			tmp = trace * np.sign(amp)
@@ -274,11 +276,11 @@ class SealTest(SignalProc, Analysis):
 			if len(cells):
 				cells = list(set(cells) & 
 						set(self.projMan.getSelectedCells()) &
-						set(stProps.index.get_level_values["cell"]))
+						set(stProps.index.get_level_values("cell")))
 				stProps = stProps.loc[(cells), :]
 			aveStProps = stProps.groupby("cell").mean()
-			aveStProps= aveStProps.merge(self.projMan.getAssignedType(), 
-					"left", "cell")
+			aveStProps= aveStProps.join(self.projMan.getAssignedType(), 
+					"cell", "left")
 			aveStProps.to_csv(self.projMan.workDir + os.sep + \
 					"st_" + protocol + ".csv")
 			return aveStProps

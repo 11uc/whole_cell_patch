@@ -68,6 +68,27 @@ def plot_trace(trace, sr, smooth_trace = None , points = None, stim = None, \
 			ax.plot([st, st], [y1, y2], pen = pg.mkPen('k')) 
 	return ax
 
+def plot_trace_buffer(trace, sr, **kargs):
+	'''
+	Collect parameters that will be used for plot_trace to plot in list of 
+	dictionary ax, which could be used for actual plotting.
+
+	Parameters
+	----------
+	Same as plot_trace, except for ax which is a list of dictionaries with 
+	other plot_trace parameters. Default is an empty list.
+
+	Returns
+	-------
+	ax: list
+		Of parameter dictionaries.
+	'''
+	ax = kargs.pop("ax", [])
+	kargs["trace"] = trace
+	kargs["sr"] = sr
+	ax.append(kargs)
+	return ax
+
 def save_fig(ax, name):
 	'''
 	Save figures made from plot_trace in a file.

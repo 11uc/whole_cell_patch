@@ -47,21 +47,16 @@ class AnalyzeModuleWindow(QDialog):
 			"basic_" + name, module.loadDefault("basic")), parent = self)
 		self.paramDg.accepted.connect(self.changeBasic)
 		self.paramGrids = []
-		self.workerThreads = []
 		for i, profile in enumerate(self.profiles):
 			ctlPg = QWidget(self)
 			ctlVB = QVBoxLayout(ctlPg)
-			wth = Worker(self, i)
-			self.workerThreads.append(wth)
 			paramGrid = ParamWidget(profile["param"], 
 					paramMan.get(profile["pname"],
 						module.loadDefault(profile["pname"])), projMan)
 			self.paramGrids.append(paramGrid)
-			# methodBtn = QPushButton(profile["name"])
 			methodBtn = QPushButton("Go")
-			wth.jobDone.connect(self.unlock)
-			methodBtn.clicked.connect(wth.start)
-			methodBtn.clicked.connect(self.lock)
+			self.module.jobDone.connect(self.unlock)
+			methodBtn.clicked.connect(lambda _, x = i: self.startWork(x))
 			ctlVB.addLayout(paramGrid)
 			ctlVB.addWidget(methodBtn)
 			self.ctlWd.addTab(ctlPg, profile["name"])
@@ -74,14 +69,6 @@ class AnalyzeModuleWindow(QDialog):
 		topVB.addWidget(stopBtn)
 		self.show()
 	
-	def __del__(self):
-		'''
-		Deal with worker thread.
-		'''
-		for w in self.workerThreads:
-			w.quit()
-			w.wait()
-
 	def updateDisp(self, upParam = True):
 		'''
 		After parameter changes due to importing or change of protocols,
@@ -171,47 +158,25 @@ class AnalyzeModuleWindow(QDialog):
 					"Wrong parameter format",
 					QMessageBox.Ok)
 	
+	def startWork(self, idx):
+		'''
+		Collect parameters and start module function.
+
+		idx: int
+			Worker id, used to determine which function to run.
+		'''
+		self.lock()
+		ret = self.changeParams(idx)
+		if ret:
+			params = self.paramMan.get(self.profiles[idx]["pname"])
+			self.module.initWorker(idx, params)
+			self.module.start()
+		else:
+			self.unlock(False)
+
 	def abort(self):
 		'''
 		Stop running analysis.
 		'''
 		if self.busy:
 			self.module.stop()
-
-	
-class Worker(QThread):
-	'''
-	Worker thread object to run the analysis function in a separate thread.
-	'''
-	# Job done good or not.
-	jobDone = pyqtSignal(bool)
-
-	def __init__(self, controller, idx):
-		'''
-		Initilize parameters needed for the function.
-
-		Parameters
-		----------
-		controller: AnalyzeModuleWindow
-			Information about the function comes from the controller.
-		idx: int
-			Worker id, used to determine which function to run.
-		'''
-		super().__init__()
-		self.controller = controller
-		self.idx = idx
-		self.pn = controller.profiles[idx]["pname"]
-		self.foo = controller.profiles[idx]["foo"]
-	
-	@pyqtSlot()
-	def run(self):
-		'''
-		Run the function after updating the parameter. Also need to show 
-		warning message if things went wrong.
-		'''
-		ret = self.controller.changeParams(self.idx)
-		if ret:
-			self.foo(**self.controller.paramMan.get(self.pn))
-			self.jobDone.emit(True)
-		else:
-			self.jobDone.emit(False)
