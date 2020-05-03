@@ -3,8 +3,8 @@
 import sys
 from PyQt5.QtCore import Qt, pyqtSlot, QEvent
 from PyQt5.QtWidgets import QMainWindow, QAction, QLabel, QGridLayout, \
-		QPushButton, QButtonGroup, QCheckBox, QVBoxLayout, QHBoxLayout, \
-		QTextEdit, QWidget, QFileDialog, QApplication, \
+		QPushButton, QButtonGroup, QRadioButton, QVBoxLayout, QHBoxLayout, \
+		QTextEdit, QWidget, QFileDialog, QApplication, QCheckBox,\
 		QMessageBox, QLineEdit, QComboBox
 import pickle
 import numpy as np
@@ -13,6 +13,7 @@ from .ap import AP
 from .sealTest import SealTest
 from .mini import Mini
 from .sub import Sub
+from .multiPlot import MultiPlot
 from .analyzeModule import AnalyzeModuleWindow
 from .project import Project
 from .param import ParamMan
@@ -20,6 +21,7 @@ from .projectDialog import ProjectDialog
 from .selectCellDialog import SelectCellDialog
 from .assignDialog import AssignDialog
 from .plotWindow import PlotWindow, SimplePlotWindow
+from .filterWin import FilterWin
 
 class wcpMainWindow(QMainWindow):
 	'''
@@ -32,8 +34,9 @@ class wcpMainWindow(QMainWindow):
 		self.param = ParamMan()
 		self.projDg = ProjectDialog(self)
 		self.selectDg = SelectCellDialog(self)
-		self.selectDg.accepted.connect(self.disconnectSelectDg)
 		self.selectDg.rejected.connect(self.disconnectSelectDg)
+		self.filterDg = FilterWin(self.proj.getDefaultFilters("str"), 
+				parent = self)
 		self.plotWindows = []
 		self.analyzeWindows = {}
 		self.initUI()
@@ -42,6 +45,7 @@ class wcpMainWindow(QMainWindow):
 		self.addModule("Seal test", SealTest)
 		self.addModule("Mini analysis", Mini)
 		self.addModule("Subthreshold response analysis", Sub)
+		self.addModule("Multiple trace plot", MultiPlot)
 		self.show()
 	
 	def initUI(self):
@@ -52,7 +56,9 @@ class wcpMainWindow(QMainWindow):
 		menubar = self.menuBar()
 		menubar.setNativeMenuBar(False)
 		fileMenu = menubar.addMenu("&File")
+		projectMenu = menubar.addMenu("Project")
 		self.analysisMenu = menubar.addMenu("&Analysis")
+		processMenu = menubar.addMenu("Process")
 
 		projNewAct = QAction("New project", self)
 		projLoadAct = QAction("Load project", self)
@@ -62,6 +68,7 @@ class wcpMainWindow(QMainWindow):
 		exitAct.setShortcut("Ctrl + Q")
 		paramImportAct = QAction("Import parameters", self)
 		paramExportAct = QAction("Export parameters", self)
+		filterAct = QAction("Filtering", self)
 		
 		fileMenu.addAction(projNewAct)
 		fileMenu.addAction(projLoadAct)
@@ -71,6 +78,7 @@ class wcpMainWindow(QMainWindow):
 		self.analysisMenu.addAction(paramImportAct)
 		self.analysisMenu.addAction(paramExportAct)
 		self.analysisMenu.addSeparator()
+		processMenu.addAction(filterAct)
 
 		self.projNameLb = QLabel("Name:")
 		self.workDirLb = QLabel("Working Directory:")
@@ -81,36 +89,41 @@ class wcpMainWindow(QMainWindow):
 		projDispGrid = QGridLayout()
 		for i, ele in enumerate(eles):
 			projDispGrid.addWidget(ele, i, 0)
-		selectCellBtn = QPushButton("Cells")
-		assignProtBtn = QPushButton("Protocols")
-		assignTypBtn = QPushButton("Types")
-		editProjBtn = QPushButton("Edit")
-		editHB = QHBoxLayout()
-		editHB.addWidget(selectCellBtn)
-		editHB.addWidget(editProjBtn)
-		editHB.addWidget(assignProtBtn)
-		editHB.addWidget(assignTypBtn)
-		projDispGrid.addLayout(editHB, len(eles), 0)
+		editProjAct = QAction("Edit project", self)
+		selectCellAct = QAction("Select cells", self)
+		assignProtTAct = QAction("Assign by trials", self)
+		assignProtSAct = QAction("Assign by stimulus type", self)
+		assignTypAct = QAction("Assign cell types", self)
+		projectMenu.addAction(editProjAct)
+		projectMenu.addAction(selectCellAct)
+		assignProtMenu = projectMenu.addMenu("Assign protocol")
+		assignProtMenu.addAction(assignProtTAct)
+		assignProtMenu.addAction(assignProtSAct)
+		projectMenu.addAction(assignTypAct)
 
 		self.cellCb = QComboBox(self)
 		optionBg = QButtonGroup(self)
 		optionBg.setExclusive(True)
-		self.trialCb = QCheckBox("Trial")
-		self.stimCb = QCheckBox("Stim")
-		optionBg.addButton(self.trialCb)
-		optionBg.addButton(self.stimCb)
-		self.trialCb.setCheckState(Qt.Checked)
+		self.trialRb = QRadioButton("Trial")
+		self.stimRb = QRadioButton("Stim")
+		optionBg.addButton(self.trialRb)
+		optionBg.addButton(self.stimRb)
+		self.trialRb.setChecked(True)
 		self.trialCbb = QComboBox(self)
 		self.protocolCb = QComboBox(self)
 		self.stimCbb = QComboBox(self)
+		self.normCb = QCheckBox("Normalize")
+		self.normWin1Le = QLineEdit(self)
+		self.normWin2Le = QLineEdit(self)
 		displayBtn = QPushButton("Display")
 		appendBtn = QPushButton("Append")
 		plotCtlGrid = QGridLayout()
 		eles = (QLabel("Cell"), self.cellCb, QLabel("Trial"), self.trialCbb,
-				self.trialCb, None, QLabel("Protocol"), self.protocolCb,
-				self.stimCb, None, QLabel("Stim"), self.stimCbb,
+				self.trialRb, None, QLabel("Protocol"), self.protocolCb,
+				self.stimRb, None, QLabel("Stim"), self.stimCbb,
+				self.normCb, QLabel("Window"), self.normWin1Le, self.normWin2Le,
 				displayBtn, None, appendBtn, None)
-		positions = [(i, j) for i in range(4) for j in range(4)]
+		positions = [(i, j) for i in range(5) for j in range(4)]
 		for ele, position in zip(eles, positions):
 			if ele == None:
 				continue
@@ -132,24 +145,29 @@ class wcpMainWindow(QMainWindow):
 		placeHolderWidget.setLayout(topHB)
 		self.setCentralWidget(placeHolderWidget)
 
-		# connections
-		editProjBtn.clicked.connect(
-				lambda: self.projDg.open(self.proj))
 		self.projDg.edited.connect(self.updateProj)
 		projNewAct.triggered.connect(lambda: self.saveProj("new"))
 		projLoadAct.triggered.connect(self.loadProj)
 		projSaveAct.triggered.connect(self.saveProj)
 		projSaveAsAct.triggered.connect(lambda: self.saveProj("as"))
 		exitAct.triggered.connect(self.close)
-		selectCellBtn.clicked.connect(self.selectCells)
-		assignTypBtn.clicked.connect(self.assignTyp)
-		assignProtBtn.clicked.connect(self.assignProtSelect)
-		self.cellCb.currentTextChanged.connect(self.updateTrials)
+		editProjAct.triggered.connect(lambda: self.projDg.open(self.proj))
+		selectCellAct.triggered.connect(self.selectCells)
+		assignTypAct.triggered.connect(self.assignTyp)
+		assignProtTAct.triggered.connect(self.assignProtByTrialSelect)
+		assignProtSAct.triggered.connect(self.assignProtByTypeSelectCell)
+		self.trialRb.clicked.connect(self.updateTrialsBySelection)
+		self.stimRb.clicked.connect(self.updateProtocols)
+		self.cellCb.currentTextChanged.connect(self.updateTrialsByCell)
+		self.cellCb.currentTextChanged.connect(self.updateStimsByCellOrProtocol)
+		self.protocolCb.currentTextChanged.connect(self.updateStimsByCellOrProtocol)
+		self.stimCbb.currentTextChanged.connect(self.updateTrialsByStim)
 		displayBtn.clicked.connect(self.disp)
 		appendBtn.clicked.connect(self.appDisp)
-		self.stimCb.stateChanged.connect(self.updateProt)
 		paramImportAct.triggered.connect(self.importParams)
 		paramExportAct.triggered.connect(self.exportParams)
+		filterAct.triggered.connect(self.filterDg.show)
+		self.filterDg.filterApplied.connect(self.setFilters)
 	
 	def saveProj(self, mode = "save"):
 		'''
@@ -170,7 +188,7 @@ class wcpMainWindow(QMainWindow):
 					self.proj.workDir + "/untitled.p")
 			target = target[0]
 			if len(target):
-				self.proj = Project()
+				self.proj.clear()
 				self.proj.projFile = target
 				self.proj.save(target)
 				self.updateDisp()
@@ -193,6 +211,7 @@ class wcpMainWindow(QMainWindow):
 				if len(target):
 					self.proj.load(target)
 					self.updateDisp()
+					self.filterDg.applyFilters(0)  # apply filters to this project
 			except pickle.UnpicklingError:
 				QMessageBox.warning(self, "Warning", "Wrong file format.",
 						QMessageBox.Ok)
@@ -215,7 +234,7 @@ class wcpMainWindow(QMainWindow):
 		self.baseFldLb.setText("Raw Data Folder:" + self.proj.baseFolder)
 		self.formatLb.setText("Data file name format:" + \
 				self.proj.genName(1, 1))
-		self.trialCb.setCheckState(Qt.Checked)
+		self.trialRb.setChecked(True)
 		# Also update module.
 		self.updateModule()
 		# Also update cell list.
@@ -227,7 +246,7 @@ class wcpMainWindow(QMainWindow):
 			self.cellCb.setCurrentIndex(0)
 	
 	@pyqtSlot(str)
-	def updateTrials(self, cell):
+	def updateTrialsByCell(self, cell):
 		'''
 		Update trial list in the display region when a cell is selected.
 
@@ -236,10 +255,70 @@ class wcpMainWindow(QMainWindow):
 		cell: string
 			Id of selected cell in the cell list.
 		'''
-		tl = self.proj.getTrials([int(cell)])
-		self.trialCbb.clear()
-		for t in tl:
-			self.trialCbb.addItem(str(t))
+		if len(cell) and self.trialRb.isChecked():
+			tl = self.proj.getTrials([int(cell)])
+			self.trialCbb.clear()
+			for t in tl:
+				self.trialCbb.addItem(str(t))
+	
+	@pyqtSlot(str)
+	def updateTrialsByStim(self, stim):
+		'''
+		Update trial list when a stimuation is selected.
+
+		Parameters
+		----------
+		stim: string
+			Stimualtion from the stimulation list.
+		'''
+		if len(stim):
+			c = int(self.cellCb.currentText())
+			p = self.protocolCb.currentText()
+			s = float(self.stimCbb.currentText())
+			tl = self.proj.getTrials([c], p, s)
+			self.trialCbb.clear()
+			for t in tl:
+				self.trialCbb.addItem(str(t))
+
+	def updateTrialsBySelection(self, _):
+		'''
+		Update the trial list when display by trial mode is selected.
+		'''
+		c = self.cellCb.currentText()
+		if len(c):
+			tl = self.proj.getTrials([int(c)])
+			self.trialCbb.clear()
+			for t in tl:
+				self.trialCbb.addItem(str(t))
+
+	def updateProtocols(self, _):
+		'''
+		Update protocol list in the display region when display by stimulation
+		mode is selected.
+		'''
+		pl = self.proj.getProtocols()
+		self.protocolCb.clear()
+		if len(pl):
+			for p in pl:
+				self.protocolCb.addItem(p)
+			self.protocolCb.setCurrentIndex(0)
+
+	@pyqtSlot(str)
+	def updateStimsByCellOrProtocol(self, arg):
+		'''
+		Update stimulation list in the display region when a new protocol
+		is selected or a new cell is selected.
+		'''
+		# only update when display by stimulation mode is selected.
+		if self.stimRb.isChecked():
+			c = int(self.cellCb.currentText())
+			p = self.protocolCb.currentText()
+			sl = self.proj.getStims(c, p)
+			self.stimCbb.clear()
+			for s in sl:
+				self.stimCbb.addItem(str(s))
+			if len(sl):
+				self.stimCbb.setCurrentIndex(0)
 	
 	def updateModule(self):
 		'''
@@ -272,7 +351,6 @@ class wcpMainWindow(QMainWindow):
 		if self.changeable():
 			try:
 				df = self.proj.getAssignedType()
-				print(df["type"])
 				assignDg = AssignDialog(df, self)
 				assignDg.start()
 				assignDg.assigned.connect(self.proj.assignType)
@@ -283,7 +361,7 @@ class wcpMainWindow(QMainWindow):
 			QMessageBox.warning(self, "Warning", "Analysis running.",
 					QMessageBox.Ok)
 	
-	def assignProtSelect(self):
+	def assignProtByTrialSelect(self):
 		'''
 		Select cells for assigning protocols.
 		'''
@@ -291,7 +369,7 @@ class wcpMainWindow(QMainWindow):
 			try:
 				inc = self.proj.getSelectedCells()
 				exc = list(set(self.proj.getCells()) - set(inc))
-				self.selectDg.selected.connect(self.assignProt)
+				self.selectDg.selected.connect(self.assignProtByTrial)
 				self.selectDg.start(inc, exc)
 			except FileNotFoundError:
 				QMessageBox.warning(self, "Warning", "Base Folder not specified.",
@@ -301,30 +379,101 @@ class wcpMainWindow(QMainWindow):
 					QMessageBox.Ok)
 		
 	@pyqtSlot(tuple)
-	def assignProt(self, cells):
+	def assignProtByTrial(self, cells):
 		'''
 		Using assigning dialogue to assign protocols for trials in selected
 		cells
 		'''
-		self.trialCb.setCheckState(Qt.Checked)
+		self.trialRb.setChecked(True)
 		trials = self.proj.getTrials(cells[0])
 		df = pd.DataFrame([], index = pd.Index(trials, name = "trial"),
 				columns = ["protocol"])
 		df["protocol"] = ''
-		print(df["protocol"])
 		assignDg = AssignDialog(df, self)
 		assignDg.start()
 		assignDg.assigned.connect(lambda labels: 
 				self.proj.assignProtocol(cells[0], labels))
 		assignDg.assigned.connect(self.updateModule)
+		self.disconnectSelectDg()
 		self.selectDg.selected.connect(self.proj.selectCells)
 	
+	def assignProtByTypeSelectCell(self):
+		'''
+		Select cells for assigning protocols by stimulation type.
+		'''
+		if self.changeable():
+			try:
+				inc = self.proj.getSelectedCells()
+				exc = list(set(self.proj.getCells()) - set(inc))
+				self.selectDg.changeTarget("Cells")
+				self.selectDg.selected.connect(self.assignProtByTypeSelectTrial)
+				self.selectDg.start(inc, exc)
+			except FileNotFoundError:
+				QMessageBox.warning(self, "Warning", "Base Folder not specified.",
+						QMessageBox.Ok)
+		else:
+			QMessageBox.warning(self, "Warning", "Analysis running.",
+					QMessageBox.Ok)
+
+	@pyqtSlot(tuple)
+	def assignProtByTypeSelectTrial(self, cells):
+		'''
+		Select trials for assigning protocols by stimulation type.
+
+		Parameters
+		----------
+		cells: tuple
+			Selected cells.
+
+		Attribute
+		---------
+		cellsForProtAssign: tuple
+			Selected cells, temporary used for assigning protocol by types.
+		'''
+		self.cellsForProtAssign = cells[0]
+		inc = self.proj.getTrials(cells[0])
+		exc = []
+		self.selectDg.changeTarget("Trials")
+		self.selectDg.selected.disconnect()
+		self.selectDg.selected.connect(self.assignProtByType)
+		self.selectDg.start(inc, exc)
+
+	@pyqtSlot(tuple)
+	def assignProtByType(self, trials):
+		'''
+		Assign protocols based on stimulation types of trials from 
+		self.cellsForProtAssign.
+		'''
+		self.disconnectSelectDg()
+		self.trialRb.setChecked(True)
+		stimTypes = self.proj.getStimType(self.cellsForProtAssign, trials[0])
+		types = np.unique(stimTypes["type"])
+		df = pd.DataFrame([], index = pd.Index(types, name = "stim"),
+				columns = ["protocol"])
+		df["protocol"] = ''
+		assignDg = AssignDialog(df, self)
+		ret = assignDg.exec_()
+		if ret:
+			df = assignDg.df
+			stimTypes["protocol"] = ''
+			for i in df.index:
+				stimTypes.loc[stimTypes["type"] == i, "protocol"] = \
+						df.loc[i, "protocol"]
+			prot = {}
+			cells = np.unique(stimTypes["cell"])
+			for c in cells:
+				prot[c] = stimTypes.loc[stimTypes["cell"] == c,
+						["trial", "stim", "protocol"]].set_index("trial")
+			self.proj.assignProtocol(cells, prot)
+			self.updateModule()
+
 	def disconnectSelectDg(self):
 		'''
 		Disconnect slots to selected signals when exiting cell selection 
-		Dialog.
+		Dialog. Also reset the displayed target.
 		'''
 		self.selectDg.selected.disconnect()
+		self.selectDg.changeTarget('')
 	
 	def display(self, win):
 		'''
@@ -339,7 +488,16 @@ class wcpMainWindow(QMainWindow):
 		tid = int(self.trialCbb.currentText())
 		trace, sr, _ = self.proj.loadWave(cid, tid)
 		xt = np.arange(len(trace)) / sr
-		win.plot(xt, trace, name = "cell{}_trial{}".format(cid, tid))
+		# normalize to baseline
+		if self.normCb.isChecked():
+			win1 = int(sr * float(self.normWin1Le.text()))
+			win2 = int(sr * float(self.normWin2Le.text()))
+			assert win2 > win1 and 0 <= win1 and win2 <= len(trace)
+			trace_ = trace - np.mean(trace[win1:win2])
+			win.plot(xt, trace_, name = "cell{}_trial{}_norm".format(cid, tid))
+		else:
+			trace_ = trace
+			win.plot(xt, trace_, name = "cell{}_trial{}".format(cid, tid))
 	
 	def disp(self):
 		'''
@@ -351,15 +509,15 @@ class wcpMainWindow(QMainWindow):
 			w.focusInSig.connect(lambda: self.promotePlot(w))
 			w.closeSig.connect(lambda: self.removePlotWin(w))
 			self.display(w)
-		except ValueError:
-			w = self.plotWindows[-1]
-			w.close()
-			QMessageBox.warning(self, "Warning", "Wrong number.",
-					QMessageBox.Ok)
 		except FileNotFoundError as e:
 			w = self.plotWindows[-1]
 			w.close()
 			QMessageBox.warning(self, "Warning", e.strerror, QMessageBox.Ok)
+		except (ValueError, AssertionError):
+			w = self.plotWindows[-1]
+			w.close()
+			QMessageBox.warning(self, "Warning", "Wrong number.",
+					QMessageBox.Ok)
 
 	def appDisp(self):
 		'''
@@ -380,7 +538,6 @@ class wcpMainWindow(QMainWindow):
 		'''
 		Promote a window as active window.
 		'''
-		print("Select plot window")
 		i = self.plotWindows.index(pw)
 		self.plotWindows.append(self.plotWindows.pop(i))
 
@@ -388,7 +545,6 @@ class wcpMainWindow(QMainWindow):
 		'''
 		Promote a window as active window.
 		'''
-		print("Closed plot window")
 		i = self.plotWindows.index(pw)
 		self.plotWindows.pop(i)
 		del(pw)
@@ -423,7 +579,7 @@ class wcpMainWindow(QMainWindow):
 				m.updateDisp()
 		except FileNotFoundError as e:
 			QMessageBox.warning(self, "Warning", e.strerror, QMessageBox.Ok)
-		except UnicodeDecodeError:
+		except (UnicodeDecodeError, KeyError):
 			QMessageBox.warning(self, "Warninig", "Wrong format.")
 
 	def addModule(self, name, module):
@@ -451,6 +607,11 @@ class wcpMainWindow(QMainWindow):
 		self.analysisMenu.addAction(analyzeModAct)
 		analyzeModAct.triggered.connect(
 				lambda: self.runModule(name, m))
+		# update parameters with default parameters
+		_, prof = m.profile()
+		self.param.set("basic_" + name, m.loadDefault("basic"))  # basic
+		for p in prof:
+			self.param.set(p["pname"], m.loadDefault(p["pname"]))
 	
 	def runModule(self, name, module):
 		'''
@@ -474,6 +635,7 @@ class wcpMainWindow(QMainWindow):
 			modWindow = AnalyzeModuleWindow(name, 
 					module, self.param, self.proj, self)
 			self.analyzeWindows[name] = modWindow
+			modWindow.updateDisp()
 	
 	def printTxt(self, text):
 		'''
@@ -495,12 +657,12 @@ class wcpMainWindow(QMainWindow):
 		Parameters
 		----------
 		plotDict: dict
-			Dictionary with plot and position data.
+			Dictionary with plot paramters and position data.
 		'''
 		if not hasattr(self, "traceWin") or self.traceWin == None:
 			self.traceWin = SimplePlotWindow(self)
 			self.traceWin.destroyed.connect(self.resetPlotWin)
-		self.traceWin.showPlot(plotDict["item"], plotDict["pos"])
+		self.traceWin.showPlot(plotDict["params"], plotDict["pos"])
 	
 	def linkTrace(self, pos):
 		'''
@@ -527,19 +689,6 @@ class wcpMainWindow(QMainWindow):
 		'''
 		self.traceWin = None
 	
-	@pyqtSlot(int)
-	def updateProt(self, state):
-		'''
-		Update display of protocols in the ComboBox when the stimCb is 
-		checked.
-		'''
-		if state == Qt.Checked:
-			self.protocolCb.clear()
-			pt = self.proj.getProtocols()
-			for i in pt:
-				self.protocolCb.addItem(i)
-			self.protocolCb.update()
-	
 	def changeable(self):
 		'''
 		Check if analysis is running to determine if project properties
@@ -549,3 +698,17 @@ class wcpMainWindow(QMainWindow):
 			if m.busy:
 				return False
 		return True
+
+	def setFilters(self, fs):
+		'''
+		Set filters to be applied when loading traces.
+
+		Parameters
+		----------
+		fs: list
+			List of dictionaries with user defined filter information.
+		'''
+		ret = self.proj.setFilters(fs)
+		if not ret:
+			QMessageBox.warning(self, "Warning", 
+					"Wrong filter format, default used.", QMessageBox.Ok)

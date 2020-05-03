@@ -77,7 +77,6 @@ class AssignDialog(QDialog):
 		topVB.addLayout(btnHB)
 		self.acceptBtn.clicked.connect(self.finish)
 		self.cancelBtn.clicked.connect(lambda: self.done(QDialog.Rejected))
-		print("built")
 		self.show()
 	
 	def start(self):
@@ -105,5 +104,5 @@ class AssignDialog(QDialog):
 				else:
 					self.df.iloc[i, j] = it.text()
 		self.assigned.emit(self.df)
-		self.assigned.disconnect()
+		# self.assigned.disconnect()
 		self.done(QDialog.Accepted)

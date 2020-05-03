@@ -1,10 +1,10 @@
 # Abstract base class defining common methods for analysis classes.
 
-import copy
 import pyqtgraph as pg
-from PyQt5.QtCore import QEventLoop, pyqtSignal, QObject, QMutex
+from PyQt5.QtCore import QEventLoop, pyqtSignal, pyqtSlot, QObject, QMutex, QThread
+import copy
 
-class Analysis(QObject):
+class Analysis(QThread):
 	'''
 	Base analysis class defining methods required to provided information
 	for the gui and methods used for output to the gui.
@@ -13,8 +13,9 @@ class Analysis(QObject):
 	plotOut = pyqtSignal(dict)
 	plotLink = pyqtSignal(list)
 	plotClear = pyqtSignal()
+	jobDone = pyqtSignal(bool)
 
-	def __init__(self, inTxtWidget):
+	def __init__(self, inTxtWidget, projMan = None, parent = None):
 		'''
 		Define attributes.
 
@@ -22,12 +23,20 @@ class Analysis(QObject):
 		----------
 		inTxtWidget: QLineEdit
 			Input line widget of the main window.
+		projMan: Project
+			Object containing information about the project including 
+			raw data and some parameters.
+		parent: QObject
+			Parent object.
 		'''
-		super().__init__()
+		super().__init__(parent)
 		self.itw = inTxtWidget
+		self.projMan = projMan
+		# default analysis parameters
+		self.setBasic(self.loadDefault("basic"))
 		self.toStop = False
 		self.qm = QMutex()
-
+	
 	def loadDefault(self, name):
 		'''
 		Define default parameters used by this analysis and return them
@@ -41,7 +50,6 @@ class Analysis(QObject):
 		Change basic parameters separately.
 		'''
 		raise NotImplementedError(("Basic parameter setting missing."))
-	
 	
 	def profile(self):
 		'''
@@ -68,7 +76,8 @@ class Analysis(QObject):
 			The profile for functions. Each dictionary describe one function.
 			The key : value pairs are:
 			- "name" : name of the function
-			- "pname" : name of the parameter dictionary key
+			- "pname" : name of the parameter dictionary key, !! This need to
+						be unique across modules.  !!
 			- "foo" : the function that could be called
 			- "param" : parameter types, same format as the basicParam
 		'''
@@ -140,7 +149,7 @@ class Analysis(QObject):
 		self.prt('>', text)
 		return text
 	
-	def plt(self, plotItem, row = 0, col = 0):
+	def plt(self, plotParams, row = 0, col = 0):
 		'''
 		Emit signal with pyqtgraph.PlotItem to plot in gui.
 
@@ -155,7 +164,7 @@ class Analysis(QObject):
 			Column number of the axes to plot in the plot window, default is 0.
 			If a plot exists in that position, it will be removed.
 		'''
-		self.plotOut.emit({"item": plotItem, "pos": (row, col)})
+		self.plotOut.emit({"params": plotParams, "pos": (row, col)})
 	
 	def linkPlt(self, row1, col1, row2, col2):
 		'''
@@ -180,3 +189,27 @@ class Analysis(QObject):
 		Clear plots to make place for new ones.
 		'''
 		self.plotClear.emit()
+	
+	def initWorker(self, idx, params):
+		'''
+		Initilize the analyze function and it's parameters to run 
+		it in another thread.
+
+		Parameters
+		----------
+		idx: int
+			Function id, used to determine which function to run.
+		params: dict
+			Paramters used to in the worker function.
+		'''
+		self.params = params
+		self.foo = self.profile()[1][idx]["foo"]
+	
+	@pyqtSlot()
+	def run(self):
+		'''
+		Run the function in a child thread. Also need to show warning 
+		message if things went wrong.
+		'''
+		self.foo(**self.params)
+		self.jobDone.emit(True)

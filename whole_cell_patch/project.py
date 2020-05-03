@@ -7,8 +7,10 @@ import pandas as pd
 import pickle
 from igor import binarywave
 from PyQt5.QtCore import QObject, pyqtSlot
+from .process import SignalProc
 
-class Project(QObject):
+
+class Project(QObject, SignalProc):
 	'''
 	Contain functions used to manipulate raw data files.
 
@@ -81,6 +83,7 @@ class Project(QObject):
 					"suffix": ".ibw"}
 		else:
 			self.load(projFile)
+		self.filters = []
 
 	def edit(self, dummy):
 		'''
@@ -189,7 +192,6 @@ class Project(QObject):
 			cells and exc is a list of excluded cells.
 		'''
 		self.selectedCells = sorted(cells[0])
-		print(self.selectedCells)
 		# If cell types have been assigned before, adjust it
 		# by keeping only the newly selected cells and assign unknown
 		# type to those that are not assigned before.
@@ -218,15 +220,23 @@ class Project(QObject):
 	def assignProtocol(self, cells, labels):
 		'''
 		Assign trials to different protocols for different analysis.
+		Take labeled trial data or labeled stimulation type name
+		data.
 
 		Parameters
 		----------
 		cells: array_like
 			Id of cells to assign protocols. When it has length of 0,
 			all the cells in the baseFolder will be considered.
-		labels: pandas.DataFrame
-			Trial and protocol pairs in a DataFrame with two columns,
-			"trial" and "protocol", "trial" as index.
+		labels: pandas.DataFrame or dict
+			pandas.DataFrame - 
+				Trial and protocol pairs in a DataFrame with two columns,
+				"trial" and "protocol", "trial" as index. The same
+				trial-protocol association will be applied to all cells.
+			dict - 
+				Dictionary with cell ids as keys and trial-protocol pair
+				data in a DataFrame as values. Specify protocols for
+				cells separatedly.
 
 		Attributes
 		----------
@@ -236,16 +246,61 @@ class Project(QObject):
 			Dictionary with cells as keys and trial-protocol pairs
 			DataFrame as values.
 		'''
-		self.protocols = set(labels["protocol"])
+		# drop empty labels
+		if type(labels) is not dict:
+			labels.drop(labels.index[labels["protocol"] == ''], inplace = True)
 		if len(cells) == 0:
 			cells = self.getCells()
 		if not hasattr(self, "assignedProt"):
 			self.assignedProt = {}
 		for c in cells:
-			cTrials = self.getTrials([c])
-			labeled = list(set(cTrials) & set(labels.index))
-			self.assignedProt[c] = labels.loc[labeled, :]
+			if type(labels) is dict:
+				self.assignedProt[c] = labels[c]
+			else:
+				cTrials = self.getTrials([c])
+				labeled = list(set(cTrials) & set(labels.index))
+				prot = labels.loc[labeled, :]
+				# record the simulation intensity of the trials as well.
+				prot["stim"] = np.nan
+				for t in labeled:
+					_, _, stim = self.loadWave(c, t)
+					prot.loc[t, "stim"] = stim[2]
+				self.assignedProt[c] = prot
+		# update protocols by checking again all protocl tables
+		self.protocols = set()
+		for c, df in self.assignedProt.items():
+			self.protocols = self.protocols | set(df["protocol"])
 	
+	def getStimType(self, cells, trials):
+		'''
+		Returns stimulation type for trials for setting protocol based 
+		on stimulation type.
+
+		Parameters
+		----------
+		cells: array_like
+			Cells of which the stimulation type will be returned.
+		trials: array_like
+			Trials of which the stimulation type will be returned.
+
+		Returns
+		-------
+		stimTypes: pandas.DataFrame
+			Cells and trials as index, one column with stimulation
+			amplitude and one column with the stimulation type.
+		'''
+		stimTypes = []
+		for c in cells:
+			for t in trials:
+				try:
+					trace, sr, stim = self.loadWave(c, t)
+					stimTypes.append([c, t, stim[2], stim[3]])
+				except IOError:
+					pass
+		stimTypes = pd.DataFrame(stimTypes, 
+				columns = ("cell", "trial", "stim", "type"))
+		return stimTypes
+
 	def getProtocols(self):
 		'''
 		Get all the protocols specified in this project. If not yet,
@@ -320,36 +375,160 @@ class Project(QObject):
 				cells.add(int(matched.group(1)))
 		return list(cells)
 
-	def getTrials(self, cells):
+	def getTrials(self, cells, protocol = None, stim = None):
 		'''
 		Get list of trial ids for cells in the baseFolder. If there is more
-		than one cell, list the union of trials from each cell.
+		than one cell, list the union of trials from each cell. If protocol
+		and stim are provided, trials will be selected from saved protocol
+		stim table.
 
 		Parameters
 		----------
 		cells: array_like
 			Cell ids. If length is 0, all cells in the baseFolder will be 
 			considered.
+		protocol: string, optional
+			Protocol used to limit trials to get. Default not considered.
+		stim: float, optional
+			Stimulation amplitude used to limit trials to get. Default 
+			not considered.
 
 		Returns
 		-------
 		trials: list
 			Trial ids.
 		'''
-		dfs = os.listdir(self.baseFolder)
 		trials = set() 
-		for c in cells:
-			for df in dfs:
-				matched = re.match(self.formatParam['prefix'] + \
-						self.formatParam['link'] + \
-						'{:04d}'.format(c) + \
-						self.formatParam['link'] + \
-						'0*([1-9][0-9]*)' + \
-						self.formatParam['suffix'] , df)
-				if matched:
-					trials.add(int(matched.group(1)))
+		if protocol is None or stim is None:
+			dfs = os.listdir(self.baseFolder)
+			for c in cells:
+				for df in dfs:
+					matched = re.match(self.formatParam['prefix'] + \
+							self.formatParam['link'] + \
+							'{:04d}'.format(c) + \
+							self.formatParam['link'] + \
+							'0*([1-9][0-9]*)' + \
+							self.formatParam['suffix'] , df)
+					if matched:
+						trials.add(int(matched.group(1)))
+		elif hasattr(self, "assignedProt"):
+			for c in cells:
+				prot = self.assignedProt[c]
+				ts = set(prot.index[(prot["protocol"] == protocol) &
+						(abs(prot["stim"] - stim) < 1e-12)])
+				trials = trials | ts
 		return list(trials)
 
+	def getStims(self, cell, protocol):
+		'''
+		Get list of stimulation amplitude for cell in protocol.
+		'''
+		stims = []
+		if hasattr(self, "assignedProt"):
+			if cell in self.assignedProt:
+				prot = self.assignedProt[cell]
+				if "stim" in prot.columns:
+					stims = set(prot.loc[prot["protocol"] == protocol, "stim"])
+		return list(stims)
+
+	def setFilters(self, filters = []):
+		'''
+		Set filters to be applied on the traces when loading them. The
+		filter parameters need to be converted to numertic format. Also
+		check the parameters, if not valid, default will be used and returns
+		0. Otherwise returns 1.
+
+		Parameters
+		----------
+		filters: list
+			List of filters defined in dictionaries. Parameters are
+			in string format.
+
+		Returns
+		-------
+		ret: int
+			0 when invalid paramter detected, 1 normally.
+		'''
+		ret = 1
+		self.filters = []
+		default = self.getDefaultFilters()
+		for f in filters:
+			name = f["name"]
+			fc = {}
+			try:
+				if name == "median":
+					fc["name"] = name
+					fc["winSize"] = int(f["winSize"])
+					fc["threshold"] = float(f["threshold"])
+				else:
+					fc["name"] = name
+					for k, v in f.items():
+						if k != "name":
+							fc[k] = float(v)
+					if (name == "bessel,bandpass" or \
+							name == "butter,bandpass") and \
+							fc["freq_high"] <= fc["freq_low"]:
+								ret = 0
+								for d in default:
+									if d["name"] == name:
+										fc = d
+			except ValueError as e:
+				ret = 0
+				for d in default:
+					if d["name"] == name:
+						fc = d
+			self.filters.append(fc)
+		return ret
+
+	def getDefaultFilters(self, form = "num"):
+		'''
+		Define available filter types and default parameters.
+
+		Paramters
+		---------
+		form: str
+			Format of the filter parameters.
+			"num" - numeric, for setting.
+			"str" - string, for displaying.
+		'''
+		if form == "num":
+			filters = [{"name": "median", 
+				"winSize": 5, 
+				"threshold": 30e-12}, 
+				{"name": "butter,lowpass",
+					"freq": 500},
+				{"name": "butter,highpass",
+					"freq": 2000},
+				{"name": "butter,bandpass",
+					"freq_low": 500,
+					"freq_high": 2000},
+				{"name": "bessel,lowpass",
+					"freq": 500},
+				{"name": "bessel,highpass",
+					"freq": 2000},
+				{"name": "bessel,bandpass",
+					"freq_low": 500,
+					"freq_high": 2000}]
+		else:
+			filters = [{"name": "median", 
+				"winSize": '5', 
+				"threshold": "30e-12"}, 
+				{"name": "butter,lowpass",
+					"freq": "500"},
+				{"name": "butter,highpass",
+					"freq": "2000"},
+				{"name": "butter,bandpass",
+					"freq_low": "500",
+					"freq_high": "2000"},
+				{"name": "bessel,lowpass",
+					"freq": "500"},
+				{"name": "bessel,highpass",
+					"freq": "2000"},
+				{"name": "bessel,bandpass",
+					"freq_low": "500",
+					"freq_high": "2000"}]
+		return filters
+		
 	def loadWave(self, cell, trial):
 		'''
 		Load trace from an igor data file, as well as sampleing rate 
@@ -375,6 +554,7 @@ class Project(QObject):
 			
 		try:
 			sr, stim_amp, stim_dur, stim_start = 10000, 0, 0, 0
+			stim_type = ''
 			data = binarywave.load(self.baseFolder + os.sep + 
 					self.genName(cell, trial))
 			trace = data['wave']['wData']
@@ -393,19 +573,36 @@ class Project(QObject):
 					data['wave']['note'].decode())
 			if(searched != None):
 				stim_dur = float(searched.group(1))
-			# Search for stimulation strat
+			# Search for stimulation start
 			searched = re.search(r';StepStart\(s\):(.+?);', 
 					data['wave']['note'].decode())
 			if(searched != None):
 				stim_start = float(searched.group(1))
-			return (trace, sr, [stim_start, stim_dur, stim_amp])
+			# Search for stimulation type
+			searched = re.search(r';StimProtocol:(.+?);', 
+					data['wave']['note'].decode())
+			if(searched != None):
+				stim_type = searched.group(1)
+			if len(self.filters):
+				for f in self.filters:
+					names = f["name"].split(',')
+					if len(names) == 1:
+						trace = self.thmedfilt(trace, f["winSize"], 
+								f["threshold"])
+					elif names[1] == "bandpass":
+						trace = self.smooth(trace, sr, 
+								[f["freq_low"], f["freq_high"]], names[0], names[1])
+					else:
+						trace = self.smooth(trace, sr, 
+								f["freq"], names[0], names[1])
+			return (trace, sr, [stim_start, stim_dur, stim_amp, stim_type])
 		except IOError:
 			print('Igor wave file (' + 
 					self.baseFolder + os.sep + self.genName(cell, trial)
 					+ ') reading error')
 			raise
 	
-	def iterate(self, protocol = ''):
+	def iterate(self, protocol = None):
 		'''
 		Iterate all trace files in a protocol, yield cell 
 		and trial numbers.
@@ -423,15 +620,84 @@ class Project(QObject):
 		t: int
 			Trial number.
 		'''
-		if len(protocol) and hasattr(self, "assignedProt"):
+		if protocol is not None and len(protocol) and \
+				hasattr(self, "assignedProt"):
 			for c in self.getSelectedCells():
 				if c in self.assignedProt:
 					lb = self.assignedProt[c]
 					for t in lb.index:
 						if lb.loc[t, "protocol"] == protocol:
 							yield (c, t)
-		else:
+		elif protocol is None:
 			cells = self.getCells()
 			for c in cells:
 				for t in self.getTrials([c]):
 					yield (c, t)
+	
+	def getTrialTable(self, protocol, cells = [], trials = [],
+			types = [], stims = []):
+		'''
+		Return a table with type, stimulation amplitude, cell id and
+		trial id as columns. Each row is a trial.
+
+		Parameters
+		----------
+		protocol: string
+			Protocol where the subthreshold recording is done.
+		cells: array_like, optional
+			Ids of cells to include. By default include all the cells.
+		trials: array_like, optional
+			Ids of trials to include. By default include all trials.
+		types: array_like, optional
+			Types of cells to include. By default include all the cells.
+		stims: array_like, optional
+			Stimulation amplitudes with which trials will be included.
+			By default include all trials.
+
+		Returns
+		-------
+		df: pandas.DataFrame
+			Table with trial labels, "type", "stim", "cell" and "trial".
+		'''
+		df = []
+		if len(protocol) and hasattr(self, "assignedProt"):
+			if len(cells):
+				cells = list(set(cells) & set(self.getSelectedCells()))
+			else:
+				cells = self.getSelectedCells()
+			for c in cells:
+				if c in self.assignedProt and ((not len(types)) or \
+						self.assignedTyp.loc[c, "type"] in types):
+					lb = self.assignedProt[c]
+					if len(trials):
+						ctrials = np.unique(trials + list(lb.index))
+					else:
+						ctrials = lb.index
+					for t in ctrials:
+						if lb.loc[t, "protocol"] == protocol and \
+								((not len(stims)) or lb.loc[t, "stim"] in stims):
+							df.append([self.assignedTyp.loc[c, "type"], 
+								lb.loc[t, "stim"], c, t])
+		df = pd.DataFrame(df, columns = ["type", "stim", "cell", "trial"])
+		return df
+
+	def clear(self):
+		'''
+		Clear current content to make a new project object.
+		'''
+		self.projFile = ''
+		self.name = ''
+		self.baseFolder = ''
+		self.workDir = ''
+		self.formatParam = {"prefix": "Cell",
+			"pad": '4', 
+			"link": '_', 
+			"suffix": ".ibw"}
+		if hasattr(self, "assignedProt"):
+			del self.protocols
+			del self.assignedProt
+		if hasattr(self, "assignedTyp"):
+			del self.types
+			del self.assignedTyp
+		if hasattr(self, "selectedCells"):
+			del self.selectedCells

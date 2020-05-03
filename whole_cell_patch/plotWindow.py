@@ -1,11 +1,12 @@
 # Window used to plot data
 
-import copy
 from PyQt5.QtCore import Qt, pyqtSignal, QEvent
 from PyQt5.QtWidgets import QDialog, QPushButton, QGridLayout, QLabel, \
-		QVBoxLayout, QHBoxLayout
+		QVBoxLayout, QHBoxLayout, QLineEdit, QGridLayout
 import pyqtgraph as pg
 import numpy as np
+from . import plot
+from .scaleBar import ScaleBar
 
 class PlotWindow(QDialog):
 	'''
@@ -27,14 +28,28 @@ class PlotWindow(QDialog):
 		'''
 		super().__init__(parent)
 		self.setModal(False)
-		# buttons used for manipulating the graph
+		# buttons and boxes used for manipulating the graph
 		legendBtn = QPushButton("Legend")
 		axisBtn = QPushButton("Axis")
 		crosshairBtn = QPushButton("Crosshair")
-		btnHB = QHBoxLayout()
-		btnHB.addWidget(legendBtn)
-		btnHB.addWidget(axisBtn)
-		btnHB.addWidget(crosshairBtn)
+		scaleBtn = QPushButton("ScaleBar")
+		self.xbarLe = QLineEdit(self)
+		xbarHB = QHBoxLayout()
+		xbarHB.addWidget(QLabel('x'))
+		xbarHB.addWidget(self.xbarLe)
+		self.ybarLe = QLineEdit(self)
+		ybarHB = QHBoxLayout()
+		ybarHB.addWidget(QLabel('y'))
+		ybarHB.addWidget(self.ybarLe)
+		btnGrid = QGridLayout()
+		gridItems = [legendBtn, axisBtn, crosshairBtn, 
+				scaleBtn, xbarHB, ybarHB]
+		gridPos = [(i, j) for i in range(2) for j in range(3)]
+		for item, p in zip(gridItems, gridPos):
+			if type(item) is QHBoxLayout:
+				btnGrid.addLayout(item, *p)
+			else:
+				btnGrid.addWidget(item, *p)
 		topVB = QVBoxLayout(self)
 		self.plotW = pg.PlotWidget(self, background = "w")
 		self.plotI = self.plotW.getPlotItem()
@@ -43,12 +58,13 @@ class PlotWindow(QDialog):
 		self.coorTxt = ''
 		topVB.addWidget(self.status)
 		topVB.addWidget(self.plotW)
-		topVB.addLayout(btnHB)
+		topVB.addLayout(btnGrid)
 		self.traces = {}
 		self.colors = {}
 		self.legend = None
 		self.axisOn = True
 		self.crosshairOn = False
+		self.scaleBar = None
 		self.vLine = pg.InfiniteLine(angle=90, movable=False)
 		self.hLine = pg.InfiniteLine(angle=0, movable=False)
 		self.proxy = pg.SignalProxy(self.plotI.scene().sigMouseMoved, 
@@ -57,6 +73,7 @@ class PlotWindow(QDialog):
 		legendBtn.clicked.connect(self.toggleLegend)
 		axisBtn.clicked.connect(self.toggleAxis)
 		crosshairBtn.clicked.connect(self.toggleCrosshair)
+		scaleBtn.clicked.connect(self.toggleScaleBar)
 		self.show()
 
 	def plot(self, *args, **kargs):
@@ -143,6 +160,25 @@ class PlotWindow(QDialog):
 			self.crosshairOn = True
 		self.update()
 	
+	def toggleScaleBar(self):
+		'''
+		Toggle display of scale bar, update scale bar length only when
+		toggled on.
+		'''
+		if self.scaleBar is None:
+			try:
+				xl = float(self.xbarLe.text())
+				yl = float(self.ybarLe.text())
+				self.scaleBar = ScaleBar(xl, yl, self.plotI.vb, 
+						brush = pg.mkBrush('k'), offset = (30, 30))
+			except ValueError:
+				self.xbarLe.setText('')
+				self.ybarLe.setText('')
+		else:
+			self.plotI.vb.removeItem(self.scaleBar)
+			del self.scaleBar
+			self.scaleBar = None
+	
 	def mouseMoved(self, event):
 		'''
 		Handle mouse move event only when the crosshair is on.
@@ -211,33 +247,26 @@ class SimplePlotWindow(QDialog):
 		self.plotI.clear()
 		self.plotI.plot(*args, **kwargs)
 	
-	def showPlot(self, item, pos):
+	def showPlot(self, params, pos):
 		'''
 		Replace content in current plotItem.
 
 		Parameters
 		----------
-		item: pyqtgraph.PlotItem
-			Pyqtgraph PlotItem class with plots that going to be shown.
+		params: list
+			List of parameter dictionaries for plot.plot_trace.
 		pos: tuple
 			Row and column position to place the plot.
 		'''
 		if pos in self.widgets:
-			# self.plotI = self.widgets[pos].getPlotItem()
 			self.plotI = self.widgets[pos]
 		else:
-			'''
-			pltW = pg.PlotWidget(self, background = 'w')
-			self.widgets[pos] = pltW
-			self.topGrid.addWidget(pltW, *pos)
-			self.plotI = pltW.getPlotItem()
-			'''
 			self.plotI = self.GL.addPlot(*pos)
 			self.widgets[pos] = self.plotI
 
 		self.plotI.clear()
-		for i in item.listDataItems():
-			self.plotI.addItem(i)
+		for k in params:
+			plot.plot_trace(ax = self.plotI, **k)
 	
 	def linkPlot(self, pos1, pos2):
 		'''

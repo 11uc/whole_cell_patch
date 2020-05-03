@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QLabel, QGridLayout, QPushButton, \
 
 class SelectCellDialog(QDialog):
 	'''
-	Dialog used to select cells for assigning protocols or types.
+	Dialog used to select cells or trials for assigning protocols or types.
 	'''
 	selected = pyqtSignal(tuple)
 
@@ -33,11 +33,13 @@ class SelectCellDialog(QDialog):
 		super().__init__(parent)
 		self.incLW = QListWidget(self)
 		self.excLW = QListWidget(self)
+		self.incLb = QLabel("Included")
+		self.excLb = QLabel("Excluded")
 		incVB = QVBoxLayout()
 		excVB = QVBoxLayout()
-		incVB.addWidget(QLabel("Included"))
+		incVB.addWidget(self.incLb)
 		incVB.addWidget(self.incLW)
-		excVB.addWidget(QLabel("Excluded"))
+		excVB.addWidget(self.excLb)
 		excVB.addWidget(self.excLW)
 		excAllBtn = QPushButton(">>", self)
 		excBtn = QPushButton('>', self)
@@ -106,8 +108,8 @@ class SelectCellDialog(QDialog):
 		selected: 
 			Signalling selection is finished and return selection results.
 		'''
-		self.selected.emit((self.included, self.excluded))
 		self.accept()
+		self.selected.emit((self.included, self.excluded))
 
 	def include(self):
 		'''
@@ -164,3 +166,10 @@ class SelectCellDialog(QDialog):
 			self.excLW.insertItem(j, item)
 		self.incLW.update()
 		self.excLW.update()
+	
+	def changeTarget(self, target):
+		'''
+		Change display included or excluded subject.
+		'''
+		self.incLb.setText("Included " + target)
+		self.excLb.setText("Excluded " + target)

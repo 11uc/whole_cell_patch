@@ -17,7 +17,7 @@ class Sub(SignalProc, Analysis):
 	potential and sag ratio.
 	'''
 
-	def __init__(self, inTxtWidget, projMan = None):
+	def __init__(self, inTxtWidget, projMan = None, parent = None):
 		'''
 		Load time parameters for memebrane capacitor charging fitting 
 		and for sag analysis from the grand parameter file and raw data 
@@ -32,11 +32,8 @@ class Sub(SignalProc, Analysis):
 			Object containing information about the project including 
 			raw data and some parameters.
 		'''
-		self.projMan = projMan
-		# default analysis parameters
-		self.setBasic(self.loadDefault("basic"))
 		SignalProc.__init__(self)
-		Analysis.__init__(self, inTxtWidget)
+		Analysis.__init__(self, inTxtWidget, projMan, parent)
 	
 	def loadDefault(self, name):
 		'''
@@ -57,7 +54,20 @@ class Sub(SignalProc, Analysis):
 					"clamp": 'v',
 					"verbose": 0},
 				"aveSub": {"protocol": '',
-					"cells": []}}
+					"cells": [],
+					"stimRange": [0, 0]},
+				"ivSub": {"protocol": '',
+					"win": [0, 0],
+					"baseWin": [0, 0],
+					"method": "mean",
+					"cells": [],
+					"verbose": 0},
+				"diffSub": {"protocol0": '',
+					"protocol1": '',
+					"cells": [],
+					"stims": [],
+					"toPlot": False,
+					"hanging": [0, 0]}}
 		return default[name]
 	
 	def setBasic(self, param):
@@ -152,9 +162,10 @@ class Sub(SignalProc, Analysis):
 					fit_trace = [self.fit_fun(i, x0, tau, xs) 
 							for i in (plot_time - t_1)]
 					if tau < minTau:
-						ax = plot.plot_trace(plot_trace, sr)
+						ax = plot.plot_trace_buffer(plot_trace, sr)
 					else:
-						ax = plot.plot_trace(plot_trace, sr, fit_trace)
+						ax = plot.plot_trace_buffer(plot_trace, sr, 
+								smooth_trace = fit_trace)
 					self.plt(ax)
 					ans1 = self.ipt("Apply/Decrease median filter (m),",
 							"keep current fitting result (k) or",
@@ -177,7 +188,8 @@ class Sub(SignalProc, Analysis):
 		if trapped:  # fit accepted
 			if clamp == 'v':
 				Rs = stim[2] / (x0 - baseline)
-				Rin = stim[2] / (xs - baseline) - Rs
+				# Rin = stim[2] / (xs - baseline) - Rs
+				Rin = stim[2] / (steadyState - baseline) - Rs
 				Cm = tau * (Rin + Rs) / Rin / Rs
 				# sag = (xs - steadyState) / (baseline - steadyState)
 				sg = np.sign(stim[2])
@@ -185,7 +197,8 @@ class Sub(SignalProc, Analysis):
 				sag = (m - steadyState) / (baseline - steadyState)
 			elif clamp == 'i':
 				Rs = (x0 - baseline) / stim[2]
-				Rin = (xs - baseline) / stim[2] - Rs
+				# Rin = (xs - baseline) / stim[2] - Rs
+				Rin = (steadyState - baseline) / stim[2] - Rs
 				Cm = tau / Rin
 				# sag = (xs - steadyState) / (xs - baseline)
 				sg = np.sign(stim[2])
@@ -238,6 +251,8 @@ class Sub(SignalProc, Analysis):
 			if verbose:
 				self.prt("Cell", c, "Trial", t)
 			trace, sr, stim = self.projMan.loadWave(c, t)
+			# median filter
+			trace = self.thmedfilt(trace, 5, 5e-10)
 			props = self.subAnalysis(trace, sr, 
 					stim, comp, clamp, verbose > 1)
 			props["cell"] = c
@@ -246,12 +261,13 @@ class Sub(SignalProc, Analysis):
 			subProps.append(props)
 			if self.stopRequested():
 				return 0
-		subProps = pd.concat(subProps, sort = True)
-		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
-		store.put("/sub/" + protocol + "/subProps", subProps)
-		store.close()
+		if len(subProps):
+			subProps = pd.concat(subProps, sort = True)
+			store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+			store.put("/sub/" + protocol + "/subProps", subProps)
+			store.close()
 
-	def aveProps(self, protocol, cells = [], stimRange = []):
+	def aveProps(self, protocol, cells = [], stimRange = [0, 0]):
 		'''
 		Calculate average sub properties over trials responding to a 
 		stimulation of amplitudes within a range if specified.
@@ -259,7 +275,7 @@ class Sub(SignalProc, Analysis):
 		Parameters
 		----------
 		protocol: string
-			Subfolder/protocol where the spike detection is done.
+			Protocol where the subthreshold recording is done.
 		cells: array_like, optional
 			Ids of cells to include, default is all the cells.
 		stimRange: list, optional
@@ -272,18 +288,179 @@ class Sub(SignalProc, Analysis):
 		aveSubProps: pandas.DataFrame
 			DataFrame with averge properties for each cell entry.
 		'''
-		subProps = pd.read_hdf(self.projMan.workDir + os.sep + "interm.h5",
-				"/sub/" + protocol + "/subProps")
+		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+		dataF = "/sub/" + protocol + "/subProps"
+		if dataF in store.keys():
+			subProps = store[dataF]
+			store.close()
+			if len(cells):
+				cells = list(set(cells) &
+						set(self.projMan.getSelectedCells()) &
+						set(subProps.index.get_level_values("cell")))
+				subProps = subProps.loc[(cells), :]
+			if stimRange[0] < stimRange[1]:
+				subProps = subProps.iloc[list((subProps["stimAmp"] >= stimRange[0]) &
+						(subProps["stimAmp"] < stimRange[1])), :]
+			aveSubProps = subProps.groupby("cell").mean()
+			aveSubProps= aveSubProps.join(self.projMan.getAssignedType(), 
+					"cell", "left")
+			aveSubProps.to_csv(self.projMan.workDir + os.sep + \
+					"sub_" + protocol + ".csv")
+			return aveSubProps
+		store.close()
+	
+	def iv(self, protocol, win, baseWin = [0, 0], method = "mean", cells = [],
+			verbose = 0):
+		'''
+		Calculate subthreshold trace values in current or voltage clamp steps,
+		output for IV relationship analysis.
+
+		Parameters
+		----------
+		protocol: string
+			Protocol where the subthreshold recording is done.
+		win: list
+			Time windows in which the trace value is calculated, relative 
+			to the start of stimulation.
+		baseWin: list, optional
+			Baseline time window relative to the start of stimulation. If the
+			window size is larger than 0, mean baseline value will be
+			substracted from the trace value. Default not done.
+		method: string, optional
+			Function used to calculate the trace values.
+			mean - Calculate the mean value within the window. Default.
+			max - Maximum value.
+			min - Minimum value.
+		cells: list, optional
+			List of cell ids to output, default 
+		verbose: int, optional
+			How much intermediate information to print. 
+			0 - Print nothing, default.
+			1 - Print cells and trials numbers.
+		'''
+		respVal = []
+		try:
+			for c, t in self.projMan.iterate(protocol):
+				if len(cells) == 0 or c in cells:
+					if verbose:
+						self.prt("Cell", c, "Trial", t)
+					trace, sr, stim = self.projMan.loadWave(c, t)
+					if method == "mean":
+						val = np.mean(trace[int((stim[0] + win[0]) * sr):
+							int((stim[0] + win[1]) * sr)])
+					elif method == "max":
+						val = np.max(trace[int((stim[0] + win[0]) * sr):
+							int((stim[0] + win[1]) * sr)])
+					elif method == "min":
+						val = np.min(trace[int((stim[0] + win[0]) * sr):
+							int((stim[0] + win[1]) * sr)])
+					else:
+						print(method)
+						print("???")
+						val = 0
+					if baseWin[0] < baseWin[1]:
+						val -= np.mean(trace[int((stim[0] + baseWin[0]) * sr):
+							int((stim[0] + baseWin[1]) * sr)])
+					# props = pd.DataFrame({"cell": c, "trial": t, 
+					#	"stim": stim[2], "value": val})
+					props = pd.DataFrame([[c, t, stim[2], val]], 
+							columns = ["cell", "trial", "stim", "value"])
+					props.set_index(["cell", "trial"], inplace = True)
+					respVal.append(props)
+				if self.stopRequested():
+					return 0
+			if len(respVal):
+				respVal = pd.concat(respVal, sort = True)
+				respVal = respVal.join(self.projMan.getAssignedType(), 
+						"cell", "left")
+				respVal.to_csv(self.projMan.workDir + os.sep + "IV" + 
+						'_' + protocol + ".csv")
+		except IndexError:
+			print("wrong windows")
+			self.prt("Wrong windows.")
+
+	def substract(self, protocol0, protocol1, cells = [], stims = [], toPlot = False,
+			hanging = [0, 0]):
+		'''
+		Substract responses in traces recorded in protocol prot0 from 
+		protocol prot1 with the same stimulation amplitude after aligning 
+		the baseline amplitude, then calculate the amplitude of the
+		differential responses and make plots out of them.
+
+		Parameters
+		----------
+		protocol0: string
+			Protocol where response before treatment is done.
+		protocol1: string
+			Protocol where response after treatment is done.
+		cells: array_like, optional
+			Ids of cells to include, default is all the cells.
+		stims: array_like, optional
+			Amplitude of stimulations to include, default is all the trials.
+		toPlot: bool, optional
+			Whether to make plots of the differential trace. Default is 
+			false.
+		hanging: list, optional
+			Of two scalars, the hanging window length before and after the
+			stimulation window. Default is entire trace.
+
+		Returns
+		-------
+		diffData: pandas.DataFrame
+			DataFrame with amplitude difference.
+		'''
 		if len(cells):
-			subProps = subProps.loc[(cells), :]
-		if len(stimRange):
-			idx = subProps.index[subProps["stimAmp"] >= stimRange[0] &
-					subProps["stimAmp"] < stimRange[1]]
-			subProps = subProps.loc[idx, :]
-		aveSubProps = subProps.groupby("cell").mean()
-		aveSubProps.to_csv(self.projMan.workDir + os.sep + \
-				"sub_" + protocol + ".csv")
-		return aveSubProps
+			cells = list(set(cells) & set(self.projMan.getSelectedCells()))
+		else:
+			cells = self.projMan.getSelectedCells()
+		data = []
+		ax = None
+		for c in cells:
+			# Assuming two protocols have the same stimulations
+			for s in self.projMan.getStims(c, protocol0):
+				traces = [0, 0]
+				for i, prot in enumerate([protocol0, protocol1]):
+					trials = self.projMan.getTrials([c], prot, s)
+					# add median threshold
+					counter = 0
+					for t in trials:
+						t, sr, stim = self.projMan.loadWave(c, t)
+						t = self.thmedfilt(t, 5, 5e-10)
+						# Normalize to baseline
+						t = t - np.mean(t[
+							int(sr * (stim[0] + self.subParam["baseline_start"])):
+							int(sr * (stim[0] + self.subParam["baseline_end"]))])
+						traces[i] = traces[i] + t
+						counter = counter + 1
+					traces[i] = traces[i] / counter
+				diff = traces[1] - traces[0]
+				amp = np.mean(diff[
+					int(sr * (stim[0] + self.subParam["steady_state_start"])):
+					int(sr * (stim[0] + self.subParam["steady_state_end"]))])
+				data.append([c, s, amp])
+				if toPlot:
+					if hanging[0] != hanging[1]:
+						plot_trace = diff[int(sr * (stim[0] + hanging[0])):
+								int(sr * (stim[0] + stim[1] + hanging[1]))]
+					else:
+						plot_trace = diff
+					if ax is None:
+						ax = plot.plot_trace_buffer(plot_trace, sr)
+					else:
+						plot.plot_trace_buffer(plot_trace, sr, ax = ax)
+			if toPlot:
+				'''
+				plot.save_fig(ax, self.projMan.workDir + os.sep + \
+						str(c) + '_' + protocol0 + '_' + protocol1 + ".png")
+				'''
+				self.plt(ax)
+		if not toPlot:
+			diffData = pd.DataFrame(np.array(data), columns = ["cell", "stim", "amp"])
+			diffData = diffData.merge(self.projMan.getAssignedType(), "left", "cell")
+			diffData = diffData.astype({"cell": "int"})
+			diffData.set_index(["cell", "stim"], inplace = True)
+			diffData.to_csv(self.projMan.workDir + os.sep + \
+					"diff_" + protocol0 + '_' + protocol1 + ".csv")
 
 	def profile(self):
 		'''
@@ -310,5 +487,24 @@ class Sub(SignalProc, Analysis):
 				"pname": "aveSub", 
 				"foo": self.aveProps,
 				"param": {"protocol": "protocol",
-					"cells": "intl"}}]
+					"cells": "intl",
+					"stimRange": "floatr"}},
+			{"name": "IV", 
+				"pname": "ivSub", 
+				"foo": self.iv,
+				"param": {"protocol": "protocol",
+					"win": "floatr",
+					"baseWin": "floatr",
+					"method": "combo,mean,max,min",
+					"cells": "intl",
+					"verbose": "int"}},
+			{"name": "Substraction", 
+				"pname": "diffSub", 
+				"foo": self.substract,
+				"param": {"protocol0": "protocol",
+					"protocol1": "protocol",
+					"cells": "intl",
+					"stims": "floatl",
+					"toPlot": "bool",
+					"hanging": "floatr"}}]
 		return basicParam, prof

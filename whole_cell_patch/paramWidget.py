@@ -64,7 +64,7 @@ class ParamWidget(QGridLayout):
 				twoHB.addWidget(le1)
 				self.addLayout(twoHB, i, 1)
 				self.senderList.append([le0, le1])
-			elif v == "intl" or v == "floatl":
+			elif v == "intl" or v == "floatl" or v == "strl":
 				le = QLineEdit()
 				le.textEdited.connect(lambda x, ind = k, typ = v: \
 						self.updateParam(ind, typ, x))
@@ -161,6 +161,13 @@ class ParamWidget(QGridLayout):
 						ds = ''
 					le = self.senderList[i]
 					le.setText(ds)
+				elif v == "strl":
+					if len(val):
+						ds = ", ".join(val)
+					else:
+						ds = ''
+					le = self.senderList[i]
+					le.setText(ds)
 				elif v == "bool":
 					cb = self.senderList[i]
 					cb.setChecked(val)
@@ -215,6 +222,11 @@ class ParamWidget(QGridLayout):
 			elif typ == "floatl":
 				if len(val):
 					self.param[ind] = list(map(float, val.split(',')))
+				else:
+					self.param[ind] = []
+			elif typ == "strl":
+				if len(val):
+					self.param[ind] = [d.strip() for d in val.split(',')]
 				else:
 					self.param[ind] = []
 			elif typ == "protocol":

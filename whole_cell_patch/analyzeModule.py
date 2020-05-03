@@ -3,7 +3,7 @@
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, pyqtSlot, QEvent
 from PyQt5.QtWidgets import QLabel, QGridLayout, QPushButton, \
 		QLineEdit, QVBoxLayout, QHBoxLayout, QApplication, QDialog, \
-		QComboBox, QMessageBox, QWidget
+		QComboBox, QMessageBox, QWidget, QTabWidget
 import numpy as np
 import pandas as pd
 from .param import ParamMan
@@ -40,45 +40,35 @@ class AnalyzeModuleWindow(QDialog):
 		self.paramMan = paramMan
 		self.name = name
 		self.module = module
-		paramSetBtn = QPushButton("Parameters")
 		topVB = QVBoxLayout(self)
-		self.ctlWd = QWidget()
-		ctlVB = QVBoxLayout(self.ctlWd)
-		ctlVB.addWidget(paramSetBtn)
+		self.ctlWd = QTabWidget(self)
 		self.basic, self.profiles = module.profile()
 		self.paramDg = ParamDialog(self.basic, paramMan.get(
 			"basic_" + name, module.loadDefault("basic")), parent = self)
-		paramSetBtn.clicked.connect(self.paramDg.show)
 		self.paramDg.accepted.connect(self.changeBasic)
 		self.paramGrids = []
-		self.workerThreads = []
 		for i, profile in enumerate(self.profiles):
-			wth = Worker(self, i)
-			self.workerThreads.append(wth)
+			ctlPg = QWidget(self)
+			ctlVB = QVBoxLayout(ctlPg)
 			paramGrid = ParamWidget(profile["param"], 
 					paramMan.get(profile["pname"],
 						module.loadDefault(profile["pname"])), projMan)
 			self.paramGrids.append(paramGrid)
-			methodBtn = QPushButton(profile["name"])
-			wth.jobDone.connect(self.unlock)
-			methodBtn.clicked.connect(wth.start)
-			methodBtn.clicked.connect(self.lock)
+			methodBtn = QPushButton("Go")
+			self.module.jobDone.connect(self.unlock)
+			methodBtn.clicked.connect(lambda _, x = i: self.startWork(x))
 			ctlVB.addLayout(paramGrid)
 			ctlVB.addWidget(methodBtn)
+			self.ctlWd.addTab(ctlPg, profile["name"])
 		topVB.addWidget(self.ctlWd)
+		paramSetBtn = QPushButton("Parameters")
+		paramSetBtn.clicked.connect(self.paramDg.show)
+		topVB.addWidget(paramSetBtn)
 		stopBtn = QPushButton("Abort")
 		stopBtn.clicked.connect(self.abort)
 		topVB.addWidget(stopBtn)
 		self.show()
 	
-	def __del__(self):
-		'''
-		Deal with worker thread.
-		'''
-		for w in self.workerThreads:
-			w.quit()
-			w.wait()
-
 	def updateDisp(self, upParam = True):
 		'''
 		After parameter changes due to importing or change of protocols,
@@ -168,47 +158,25 @@ class AnalyzeModuleWindow(QDialog):
 					"Wrong parameter format",
 					QMessageBox.Ok)
 	
+	def startWork(self, idx):
+		'''
+		Collect parameters and start module function.
+
+		idx: int
+			Worker id, used to determine which function to run.
+		'''
+		self.lock()
+		ret = self.changeParams(idx)
+		if ret:
+			params = self.paramMan.get(self.profiles[idx]["pname"])
+			self.module.initWorker(idx, params)
+			self.module.start()
+		else:
+			self.unlock(False)
+
 	def abort(self):
 		'''
 		Stop running analysis.
 		'''
 		if self.busy:
 			self.module.stop()
-
-	
-class Worker(QThread):
-	'''
-	Worker thread object to run the analysis function in a separate thread.
-	'''
-	# Job done good or not.
-	jobDone = pyqtSignal(bool)
-
-	def __init__(self, controller, idx):
-		'''
-		Initilize parameters needed for the function.
-
-		Parameters
-		----------
-		controller: AnalyzeModuleWindow
-			Information about the function comes from the controller.
-		idx: int
-			Worker id, used to determine which function to run.
-		'''
-		super().__init__()
-		self.controller = controller
-		self.idx = idx
-		self.pn = controller.profiles[idx]["pname"]
-		self.foo = controller.profiles[idx]["foo"]
-	
-	@pyqtSlot()
-	def run(self):
-		'''
-		Run the function after updating the parameter. Also need to show 
-		warning message if things went wrong.
-		'''
-		ret = self.controller.changeParams(self.idx)
-		if ret:
-			self.foo(**self.controller.paramMan.get(self.pn))
-			self.jobDone.emit(True)
-		else:
-			self.jobDone.emit(False)
