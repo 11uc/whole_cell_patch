@@ -38,7 +38,7 @@ class Project(QObject, SignalProc):
 	selectedCells: list
 		Index of cells that are selected for analysis in this project
 	'''
-	def __init__(self, projFile = '', name = '', baseFolder = '',
+	def __init__(self, projFile = '', name = '', baseFolder = [],
 			workDir = '', formatParam = {}):
 		'''
 		Create a new project with name, baseFolder and workDir or load a 
@@ -53,8 +53,8 @@ class Project(QObject, SignalProc):
 			Name of the project, needs to be not empty in *create* mode. Default
 			is empty.
 		baseFolder: string, optional
-			Folder with the raw trace data, needs to be not empty in *create* 
-			mode. Default is empty.
+			List of folders with the raw trace data, needs to be not empty in 
+			*create* mode. Default is empty.
 		workDir: string, optional
 			Working directory for saving the processing data and output results.
 			Default is empty.
@@ -72,8 +72,9 @@ class Project(QObject, SignalProc):
 			if len(workDir) and workDir[-1] != os.sep:
 				self.workDir += os.sep
 			self.baseFolder = baseFolder
-			if len(baseFolder) and baseFolder[-1] != os.sep:
-				self.baseFolder += os.sep
+			for i in range(len(self.baseFolder)):
+				if self.baseFolder[i][-1] != os.sep:
+					self.baseFolder[i] += os.sep
 			if len(formatParam):
 				self.formatParam = formatParam
 			else:
@@ -362,18 +363,19 @@ class Project(QObject, SignalProc):
 		cells: list
 			Cell ids.
 		'''
-		dfs = os.listdir(self.baseFolder)
-		cells = set() 
-		for df in dfs:
-			matched = re.match(self.formatParam['prefix'] + \
-					self.formatParam['link'] + \
-					'0*([1-9][0-9]*)' + \
-					self.formatParam['link'] + \
-					'0*([1-9][0-9]*)' + \
-					self.formatParam['suffix'] , df)
-			if matched:
-				cells.add(int(matched.group(1)))
-		return list(cells)
+		for bf in self.baseFolder:
+			dfs = os.listdir(bf)
+			cells = set() 
+			for df in dfs:
+				matched = re.match(self.formatParam['prefix'] + \
+						self.formatParam['link'] + \
+						'0*([1-9][0-9]*)' + \
+						self.formatParam['link'] + \
+						'0*([1-9][0-9]*)' + \
+						self.formatParam['suffix'] , df)
+				if matched:
+					cells.add(int(matched.group(1)))
+			return list(cells)
 
 	def getTrials(self, cells, protocol = None, stim = None):
 		'''
@@ -400,17 +402,18 @@ class Project(QObject, SignalProc):
 		'''
 		trials = set() 
 		if protocol is None or stim is None:
-			dfs = os.listdir(self.baseFolder)
-			for c in cells:
-				for df in dfs:
-					matched = re.match(self.formatParam['prefix'] + \
-							self.formatParam['link'] + \
-							'{:04d}'.format(c) + \
-							self.formatParam['link'] + \
-							'0*([1-9][0-9]*)' + \
-							self.formatParam['suffix'] , df)
-					if matched:
-						trials.add(int(matched.group(1)))
+			for bf in self.baseFolder:
+				dfs = os.listdir(bf)
+				for c in cells:
+					for df in dfs:
+						matched = re.match(self.formatParam['prefix'] + \
+								self.formatParam['link'] + \
+								'{:04d}'.format(c) + \
+								self.formatParam['link'] + \
+								'0*([1-9][0-9]*)' + \
+								self.formatParam['suffix'] , df)
+						if matched:
+							trials.add(int(matched.group(1)))
 		elif hasattr(self, "assignedProt"):
 			for c in cells:
 				prot = self.assignedProt[c]
@@ -555,8 +558,11 @@ class Project(QObject, SignalProc):
 		try:
 			sr, stim_amp, stim_dur, stim_start = 10000, 0, 0, 0
 			stim_type = ''
-			data = binarywave.load(self.baseFolder + os.sep + 
-					self.genName(cell, trial))
+			for bf in self.baseFolder:
+				dfs = os.listdir(bf)
+				if self.genName(cell, trial) in dfs:
+					break
+			data = binarywave.load(bf + self.genName(cell, trial))
 			trace = data['wave']['wData']
 			# Search for sampling rate
 			searched = re.search(r'XDelta\(s\):(.*?);', 
@@ -597,8 +603,7 @@ class Project(QObject, SignalProc):
 								f["freq"], names[0], names[1])
 			return (trace, sr, [stim_start, stim_dur, stim_amp, stim_type])
 		except IOError:
-			print('Igor wave file (' + 
-					self.baseFolder + os.sep + self.genName(cell, trial)
+			print('Igor wave file (' + bf + self.genName(cell, trial)
 					+ ') reading error')
 			raise
 	

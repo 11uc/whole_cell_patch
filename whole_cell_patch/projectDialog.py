@@ -2,7 +2,7 @@
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QLabel, QGridLayout, QPushButton, \
-		QLineEdit, QDialog, QFileDialog
+		QLineEdit, QDialog, QFileDialog, QTextEdit
 from .project import Project
 
 class ProjectDialog(QDialog):
@@ -23,13 +23,13 @@ class ProjectDialog(QDialog):
 		super().__init__(parent)
 		self.projNameTe = QLineEdit('')
 		self.workDirTe = QLineEdit('')
-		self.baseFolderTe = QLineEdit('')
+		self.baseFolderTe = QTextEdit('')
 		self.prefixTe = QLineEdit('')
 		self.padTe = QLineEdit('')
 		self.linkTe = QLineEdit('')
 		self.suffixTe = QLineEdit('')
 		workDirBtn = QPushButton("...")
-		baseFolderBtn = QPushButton("...")
+		baseFolderBtn = QPushButton("+")
 		saveBtn = QPushButton("OK")
 		cancelBtn = QPushButton("Cancel")
 		grids = (QLabel("Name:"), self.projNameTe, None, None,
@@ -47,8 +47,8 @@ class ProjectDialog(QDialog):
 				lambda: self.workDirTe.setText(
 					QFileDialog.getExistingDirectory(self)))
 		baseFolderBtn.clicked.connect(
-				lambda: self.baseFolderTe.setText(
-					QFileDialog.getExistingDirectory(self)))
+				lambda: self.baseFolderTe.setText(self.baseFolderTe.toPlainText() + 
+					QFileDialog.getExistingDirectory(self) + '\n'))
 		saveBtn.clicked.connect(self.save)
 		cancelBtn.clicked.connect(self.reject)
 	
@@ -64,7 +64,7 @@ class ProjectDialog(QDialog):
 		'''
 		self.projNameTe.setText(prj.name)
 		self.workDirTe.setText(prj.workDir)
-		self.baseFolderTe.setText(prj.baseFolder)
+		self.baseFolderTe.setText('\n'.join(prj.baseFolder))
 		self.prefixTe.setText(prj.formatParam["prefix"])
 		self.padTe.setText(prj.formatParam["pad"])
 		self.linkTe.setText(prj.formatParam["link"])
@@ -82,7 +82,7 @@ class ProjectDialog(QDialog):
 			Signalling edit is confirmed with project object parameters.
 		'''
 		prj = Project('', self.projNameTe.text(), 
-				self.baseFolderTe.text(), 
+				self.baseFolderTe.toPlainText().strip().split('\n'), 
 				self.workDirTe.text(),
 				{"prefix": self.prefixTe.text(), 
 					"pad": self.padTe.text(),

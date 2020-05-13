@@ -51,6 +51,11 @@ class AP(Analysis):
 					"cells": [1],
 					"rateRange": [0., 0.],
 					"idRange": [0, 0]},
+				"accommAP": {"protocol": '',
+					"cells": [1],
+					"rateRange": [0., 0.],
+					"early_ap": 1,
+					"late_ap": 2},
 				"rheo": {"protocol": '',
 					"cells": []}}
 		return default[name]
@@ -139,7 +144,7 @@ class AP(Analysis):
 			if ans == 'n' or ans == 'N':
 				return None, None
 		# Then calculate properties slope, amp, threshold, width
-		slope, amp, threshold, width = [], [], [], []
+		slope, amp, threshold, width, rate = [], [], [], [], []
 		# and mAHP amplitudes
 		mAHP = np.full(len(starts), np.nan)
 		# Parameters used for mAHP calculation
@@ -155,11 +160,14 @@ class AP(Analysis):
 				if starts[s] + sr * mAHPb < starts[s + 1]:
 					mAHP[s] = trace[starts[s]] - np.min(trace[int(mAHPb * sr):
 						min(starts[s] + int(mAHPe * sr), starts[s + 1])])
+				# instantaneous firing rate
+				rate.append(sr / (starts[s + 1] - starts[s]))
 			else: # last spike
 				peak_point = np.argmax(trace[starts[s]:
 					starts[s] + int(sr / 100)])  # Assume ap with < 10 ms
 				troph_point = np.argmin(trace[starts[s] + peak_point:
 					starts[s] + int(sr / 100)])  # Assume ap with < 10 ms
+				rate.append(np.nan)
 			slope.append(np.max(np.diff(trace[starts[s]:
 						starts[s] + peak_point])) * sr)
 			amp.append(trace[starts[s] + peak_point] - trace[starts[s]])
@@ -179,6 +187,7 @@ class AP(Analysis):
 		apProps["threshold"] = threshold
 		apProps["width"] = width
 		apProps["mAHP"] = mAHP
+		apProps["rate"] = rate
 		# Lastly, the sAHP or end of pulse AHP
 		baseline = self.AHPParam["baseline"]
 		sAHPb = self.AHPParam["sAHP_begin"]
@@ -360,6 +369,72 @@ class AP(Analysis):
 			return aveAPProps
 		store.close()
 	
+	def accomm(self, protocol, cells = [], rateRange = [0, 0], early_ap = 1,
+			late_ap = 2):
+		'''
+		Calculate average action potential accommondation ratio, using spike 
+		trains with firing range in a certain range.
+
+		Parameters
+		----------
+		protocol: string
+			Subfolder/protocol where the spike detection is done.
+		cells: array_like, optional
+			Ids of cells to include, default is all the cells.
+		rateRange: array_like, optional
+			Range of firing rates, two scalars. Only consider trials with
+			firing rate within this range. By defaut not used.
+		early_ap: int, optional
+			Id of the early action potential, accommondation ratio is the
+			ratio of instantaneous firing rate between late action potential
+			and early action potential. Default is 1.
+		late_ap: int, optional
+			Id of the late action potential.
+
+		Returns
+		-------
+		aveAccomm: pandas.DataFrame
+			DataFrame with averge accommondation ratio for each cell entry.
+		'''
+		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+		trialDataF = "/AP/" + protocol + "/trialProps"
+		apDataF = "/AP/" + protocol + "/apProps"
+		if trialDataF in store.keys() and apDataF in store.keys():
+			trialProps = store.get(trialDataF)
+			apProps = store.get(apDataF)
+			apProps.reset_index("id", inplace = True)
+			apProps["id"] = apProps["id"].astype(int)
+			store.close()
+			if len(cells):
+				cells = list(set(cells) &
+						set(self.projMan.getSelectedCells()) &
+						set(apProps.index.get_level_values("cell")))
+				apProps = apProps.loc[(cells), :]
+			if rateRange[0] < rateRange[1]:
+				idx = trialProps.index[(trialProps["rate"] >= rateRange[0]) &
+						(trialProps["rate"] < rateRange[1])]
+				if len(idx):
+					apProps = apProps.loc[idx, :]
+				else:
+					apProps = pd.DataFrame([], columns = apProps.columns,
+							index = idx)
+			earlyRate = apProps.loc[apProps["id"] + 1 == early_ap, "rate"]
+			lateRate = apProps.loc[apProps["id"] + 1 == late_ap, "rate"]
+			rates = pd.merge(earlyRate, lateRate, "outer", left_index = True,
+					right_index = True, suffixes = ['_early', '_late'])
+			if len(rates):
+				rates["ratio"] = rates["rate_early"] / rates["rate_late"]
+				print(rates)
+				aveAccomm = rates.groupby("cell").mean()
+				aveAccomm = aveAccomm.merge(self.projMan.getAssignedType(), 
+						"left", "cell")
+			else:
+				aveAccomm = rates
+			aveAccomm.to_csv(self.projMan.workDir + os.sep + \
+					"accommondation_" + protocol + ".csv")
+			return aveAccomm
+		store.close()
+
 	def rheobase(self, protocol, cells = []):
 		'''
 		Find the rheobase, minimum amount of current required for the
@@ -418,6 +493,14 @@ class AP(Analysis):
 					"cells": "intl",
 					"rateRange": "floatr",
 					"idRange": "intr"}},
+			{"name": "Accommondation", 
+				"pname": "accommAP", 
+				"foo": self.accomm,
+				"param": {"protocol": "protocol",
+					"cells": "intl",
+					"rateRange": "floatr",
+					"early_ap": "int",
+					"late_ap": "int"}},
 			{"name": "Rheobase", 
 				"pname": "rheo", 
 				"foo": self.rheobase,

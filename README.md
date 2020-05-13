@@ -1,7 +1,9 @@
 ## Description
 Whole-cell patch clamp recording results analysis program, including
 some basic current clamp and voltage clamp analysis. It's used on 
-data file collected using Igor.
+data file collected using a Igor program made by a previous lab member.
+The files are in the format of igor binary wave files (.ibw). Those files
+include metadata such as time and stimulation information. 
 
 ## Installation
 Could be installed through PyPl
@@ -64,6 +66,24 @@ reuse and sharing easier.
 ### Process
 Premilinary process applied to the traces before being analyzed or 
 plotted. Currently only basic filters are implemented.
+### Example
+Here's an example procedure to analyze some mini recording data.
+
+*	Go to **Project -> Edit project** and specify experiment name, working 
+	directory (an empty folder for output data), raw data folders.
+*	(optional) Go to **Project -> Select cells** and specify cells to include.
+*	Go to **Project -> Assign protocol** and assign protocols to trials.
+*	(optional) Go to **Project -> Assign cell** types to label cell groups.
+*	Go to **File -> Save project** to save project information edited above.
+*	(optional) Specify cell and trial number and click **Display** to examine 
+	raw traces.
+*	Go to **Analysis -> Mini analysis**. Under Mini Analysis tab, specify 
+	protocol and click **Go** to detect minis. Set verbose to 1 to see the 
+	progress.
+*	Under Properties tab, specify protocol, cells. Click **Go** to output mini 
+	properties data in a csv file in working directory. If seal tests are done
+	for those trial, RinTh and numTh could be specified to exclude trials/cells
+	with too high access resistance.
 
 ## Detailed Analysis Description
 ### Action potential
@@ -109,6 +129,17 @@ Calculate average properties of action potentials for cells.
 	same to include all firing rate.
 *	*idRange*: ids which a action potential in a trial to have to be included.
 	Leave the same to include all action potentials.
+#### Accommondation
+Calculate average accomondation ratio of instantaneous firing rate between two 
+action potentials. It's define as the second action potential over the first
+action potential.
+
+*	*cells*: ids of cells for which to calculate the properties. Leave empty
+	to include all cells.
+*	*rateRange*: firing rate a trial to have to be included. Leave the
+	same to include all firing rate.
+*	*early_ap*: id of the first action potential.
+*	*late_ap*: id of the second action potential
 #### Rheobase
 Calculate average rheobases for cells, i.e. the least amount current required
 for the neuron to fire action potentials.
@@ -182,7 +213,8 @@ Detecting minis.
 *	*verbose*: level of details to display during detection.  
 	0 - nothing.  
 	1 - display cell and trial numbers.  
-	2 - display fitting result for each mini.
+	2 - display detection result for each trial.
+	3 - display fitting result for each mini.
 #### Properties
 Output averaged mini properties.
 

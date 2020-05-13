@@ -56,7 +56,7 @@ class Mini(SignalProc, Analysis):
 					"verbose": 0},
 				"aveMini": {"protocol": '',
 					"cells": [],
-					"RinTh": 0,
+					"RsTh": 0,
 					"numTh": 0}}
 		return default[name]
 	
@@ -293,7 +293,7 @@ class Mini(SignalProc, Analysis):
 		store.put("/mini/" + protocol + "/trialProps", trialProps)
 		store.close()
 
-	def aveProps(self, protocol, cells = [], RinTh = 0, numTh = 0):
+	def aveProps(self, protocol, cells = [], RsTh = 0, numTh = 0):
 		'''
 		Calculate average mini properties. If input resistance is already
 		calculate, only use trials with input resistance lower than 
@@ -305,8 +305,8 @@ class Mini(SignalProc, Analysis):
 			Subfolder/protocol where the spike detection is done.
 		cells: array_like, optional
 			Ids of cells to include, default is all the cells.
-		RinTh: float, optional
-			Maximum input resistance threshold. Used when the input 
+		RsTh: float, optional
+			Maximum access resistance threshold. Used when the access 
 			resistances for cells in this protocol/subfolder is calculated.
 			By default not applied.
 		NumTh: int, optional
@@ -329,14 +329,14 @@ class Mini(SignalProc, Analysis):
 			miniProps = store[miniDataF]
 			trialProps = store[trialDataF]
 			store.close()
-			if RinTh > 0 and len(miniProps):
+			if RsTh > 0 and len(miniProps):
 				try:
 					stProps = pd.read_hdf(
 							self.projMan.workDir + os.sep + "interm.h5",
 							"/st/" + protocol + "/stProps")
 					analyzedCells = list(set(miniProps["cell"]))
 					stProps = stProps.loc[(analyzedCells), :]
-					idx = stProps.index[stProps["Rin"] < RinTh]
+					idx = stProps.index[stProps["Rs"] < RsTh]
 					miniProps.reset_index("id", inplace = True)
 					miniProps.drop("id", axis = 1, inplace = True)
 					miniProps = miniProps.loc[idx, :]
@@ -396,6 +396,6 @@ class Mini(SignalProc, Analysis):
 				"foo": self.aveProps,
 				"param": {"protocol": "protocol",
 					"cells": "intl",
-					"RinTh": "float",
+					"RsTh": "float",
 					"numTh": "int"}}]
 		return basicParam, prof

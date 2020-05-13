@@ -231,7 +231,8 @@ class wcpMainWindow(QMainWindow):
 		'''
 		self.projNameLb.setText("Name:" + self.proj.name)
 		self.workDirLb.setText("Working Directory:" + self.proj.workDir)
-		self.baseFldLb.setText("Raw Data Folder:" + self.proj.baseFolder)
+		self.baseFldLb.setText("Raw Data Folder:" + 
+				'\n'.join(self.proj.baseFolder))
 		self.formatLb.setText("Data file name format:" + \
 				self.proj.genName(1, 1))
 		self.trialRb.setChecked(True)
@@ -337,7 +338,7 @@ class wcpMainWindow(QMainWindow):
 				exc = list(set(self.proj.getCells()) - set(inc))
 				self.selectDg.selected.connect(self.proj.selectCells)
 				self.selectDg.start(inc, exc)
-			except FileNotFoundError:
+			except (FileNotFoundError, TypeError):
 				QMessageBox.warning(self, "Warning", "Base Folder not specified.",
 						QMessageBox.Ok)
 		else:

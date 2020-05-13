@@ -7,7 +7,7 @@ def readme():
 		return f.read()
 
 setup(name = "whole_cell_patch",
-      version = '0.1.1',
+      version = '0.1.2',
       description = ("Analysis scripts used to analyze whole-cell "
 		  "patch clamp recording data."),
 	  long_description = readme(),
