@@ -168,8 +168,13 @@ class AP(Analysis):
 				troph_point = np.argmin(trace[starts[s] + peak_point:
 					starts[s] + int(sr / 100)])  # Assume ap with < 10 ms
 				rate.append(np.nan)
-			slope.append(np.max(np.diff(trace[starts[s]:
-						starts[s] + peak_point])) * sr)
+			if peak_point == 0:
+				slope.append((trace[starts[s]] - trace[starts[s] - 1]) * sr)
+			elif peak_point == 1:
+				slope.append((trace[starts[s] + 1] - trace[starts[s]]) * sr)
+			else:
+				slope.append(np.max(np.diff(trace[starts[s]:
+							starts[s] + peak_point])) * sr)
 			amp.append(trace[starts[s] + peak_point] - trace[starts[s]])
 			threshold.append(trace[starts[s]])
 			half = 0.5 * (trace[starts[s] + peak_point] + 
@@ -177,11 +182,18 @@ class AP(Analysis):
 			if troph_point == 0:
 				print('s', s, 'total', len(starts))
 				print('stim', stim)
-			width.append((peak_point - np.nonzero(trace[starts[s]:
-						starts[s] + peak_point] > half)[0][0] + \
-					np.nonzero(trace[starts[s] + peak_point:
-						starts[s] + peak_point + troph_point] > \
-								half)[0][-1]) / sr)
+			if len(np.nonzero(trace[starts[s]:
+				starts[s] + peak_point] > half)[0]) == 0:
+				width.append((1 + \
+						np.nonzero(trace[starts[s] + peak_point:
+							starts[s] + peak_point + troph_point] > \
+									half)[0][-1]) / sr)
+			else:
+				width.append((peak_point - np.nonzero(trace[starts[s]:
+							starts[s] + peak_point] > half)[0][0] + \
+						np.nonzero(trace[starts[s] + peak_point:
+							starts[s] + peak_point + troph_point] > \
+									half)[0][-1]) / sr)
 		apProps["slope"] = slope
 		apProps["amp"] = amp
 		apProps["threshold"] = threshold
