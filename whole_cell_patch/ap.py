@@ -4,6 +4,10 @@
 import os
 import numpy as np
 import pandas as pd
+from matplotlib.figure import Figure as mfigure
+import matplotlib._color_data as mcd
+import matplotlib.lines as mlines
+import matplotlib as mpl
 from .project import Project
 from .analysis import Analysis
 from . import plot
@@ -57,7 +61,17 @@ class AP(Analysis):
 					"early_ap": 1,
 					"late_ap": 2},
 				"rheo": {"protocol": '',
-					"cells": []}}
+					"cells": []},
+				"plotp": {"protocols": [],
+					"types": [],
+					"cells": [],
+					"trials": [],
+					"rateRange": [0., 0.],
+					"idRange": [0, 0],
+					"win": [0, 0.003],
+					"errorBar": False,
+					"label": "none",
+					"magnify": 1}}
 		return default[name]
 	
 	def setBasic(self, param):
@@ -219,7 +233,11 @@ class AP(Analysis):
 		Analyze action potential spikes in all raw data in a certain 
 		subfolder/protocol in current data set. Save all the properties
 		in an intermediate hdf5 file in the working directory. In group
-		/AP/protocol/[apProps and trialProps]
+		/AP/protocol/[apProps and trialProps].
+		/AP/protocol/apProps has ap properties, each row is one action potential.
+		Indices are cell and trial id and the ap id in that trial.
+		/AP/protocol/trialProps has rate and sAHP properties, each row is
+		one trial and indices are cell and trial id.
 
 		Parameters
 		----------
@@ -472,6 +490,144 @@ class AP(Analysis):
 			rb.to_csv(self.projMan.workDir + os.sep + \
 					"rheo_" + protocol + ".csv")
 		store.close()
+	
+	def apPlot(self, protocols, types = [], cells = [], trials = [], 
+			rateRange = [0, 0], idRange = [0, 0], win = [0, 3e-3], 
+			errorBar = False, label = "none", magnify = 1):
+		'''
+		Plot averaged traces of selected action potential traces from 
+		selected trials from selected cells.
+
+		Parameters
+		----------
+		protocols: array_lie
+			List of names of protocols with which the selected trial were recorded.
+		types: array_like, optional
+			Types of cells to select. By default all types are included.
+		cells: array_like, optional
+			Ids of cells to select. By default all cells are included.
+		trials: array_like, optional
+			Trials fo select. By default all the trial in the specified protocols.
+		rateRange: array_like, optional
+			Range of firing rates, two scalars. Only consider trials with
+			firing rate within this range. By defaut not used.
+		idRange: array_like, optional
+			Range of spike id in the trial, two scalars. Only consider
+			spikes whose ids is within this range. By default not used.
+		win: array_like, optional
+			Time window in seconds relative to the action potential start point
+			to plot the traces. Default is 3 ms after the start point.
+		errorBar: boolean, optional
+			Whether to plot error bar. Default is not.
+		label: string, optional
+			One of "type", "protocol", and "none". The label for 
+			each trace. Default is "none", nothing will be labeled.
+		magnify: float, optional
+			Maginification factor for the image. Default is 1.
+		'''
+		# Select trials and cells
+		trialTables = []
+		for p in protocols:
+			t = self.projMan.getTrialTable(p, cells, trials, types)
+			t["protocol"] = p
+			trialTables.append(t)
+		trialTable = pd.concat(trialTables).reset_index()
+		# Plot storage
+		traces = []
+		labels = []
+		errors = []
+		# Load firing rate and action potential time data
+		apProps = []
+		trialProps = []
+		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+		for p in protocols:
+			trialDataF = "/AP/" + p + "/trialProps"
+			apDataF = "/AP/" + p + "/apProps"
+			if trialDataF in store.keys() and apDataF in store.keys():
+				tp = store.get(trialDataF)
+				ap = store.get(apDataF)
+				apProps.append(ap)
+				trialProps.append(tp)
+		store.close()
+		if len(trialProps) == 0:
+			return 0
+		trialProps = pd.concat(trialProps)
+		apProps = pd.concat(apProps)
+		apProps.reset_index("id", inplace = True)
+		apProps["id"] = apProps["id"].astype(int)
+		# Average traces
+		grp = trialTable.groupby(["type", "protocol"])
+		for k, v in grp.groups.items():
+			apTraces = []
+			cellIds = []
+			for c, t in trialTable.loc[v, ["cell", "trial"]].values:
+				rate = trialProps.loc[(c, t), "rate"]
+				if rateRange[0] >= rateRange[1] or \
+						(rateRange[0] < rate and rate <= rateRange[1]):
+					tr, sr, stim = self.projMan.loadWave(c, t)
+					aps = apProps.loc[(c, t), ["starts", "id"]].values # starts and id
+					for s, i in aps:
+						if idRange[0] >= idRange[1] or \
+								(idRange[0] < i and i <= idRange[1]):
+							trace = tr[int(s + win[0] * sr):int(s + win[1] * sr)] - \
+									tr[int(s)]
+							apTraces.append(trace)
+							cellIds.append(c)
+			if(len(apTraces)):
+				cellApTraces = []  # averaged traces for each cell
+				apTraces = np.vstack(apTraces)
+				cellIds = np.array(cellIds)
+				for c in np.unique(cellIds):
+					cellApTraces.append(np.mean(apTraces[cellIds == c], axis = 0))
+				traces.append(np.mean(cellApTraces, axis = 0))
+			if errorBar:
+				if len(cellApTraces) > 2:
+					errors.append(np.std(cellApTraces, axis = 0) / 
+							np.sqrt(len(cellApTraces)))
+				else:
+					errors.append([])
+			if label != "none":
+				labels.append(trialTable.loc[v[0], label])
+		# Plotting
+		fig = mfigure(
+				figsize = [d * magnify for d in mpl.rcParams["figure.figsize"]],
+				dpi = 300)
+		mpl.rcdefaults()
+		mpl.rcParams.update({"font.size": magnify * mpl.rcParams["font.size"]})
+		ax = fig.subplots()
+		if len(labels):
+			uniLabels = list(set(labels))
+			# xkcd_colors = list(mcd.XKCD_COLORS.keys())
+			t10_colors = ['tab:cyan', 'tab:red', 'tab:blue', 'tab:orange', 
+					'tab:green', 'tab:purple', 'tab:brown', 'tab:pink', 
+					'tab:gray', 'tab:olive']
+			colors = [t10_colors[d % len(t10_colors)] 
+				for d in range(len(uniLabels))]
+		if len(traces):
+			x = np.arange(len(traces[0])) / sr
+		for i, t in enumerate(traces):
+			if self.stopRequested():
+				return 0
+			if len(labels):
+				ax.plot(x, t, color = colors[uniLabels.index(labels[i])])
+				if len(errors) and len(errors[i]):
+					f = ax.fill_between(x, t - errors[i], t + errors[i], 
+							color = colors[uniLabels.index(labels[i])],
+							alpha = 0.2)
+					f.set_edgecolor("none")
+			else:
+				ax.plot(x, t, color = 'k')
+				if len(errors) and len(errors[i]):
+					f = ax.fill_between(x, t - errors[i], t + errors[i],
+							color = 'k', alpha = 0.2)
+					f.set_edgecolor("none")
+		if len(labels):
+			handles = []
+			for i, l in enumerate(uniLabels):
+				handles.append(mlines.Line2D([], [], color = colors[i], label = l))
+			ax.legend(handles = handles, loc = "best")
+		fig.savefig(self.projMan.workDir + os.sep + "multi_plot_multi_protocol" + 
+				".pdf", dpi = 300)
 
 	def profile(self):
 		'''
@@ -517,5 +673,18 @@ class AP(Analysis):
 				"pname": "rheo", 
 				"foo": self.rheobase,
 				"param": {"protocol": "protocol",
-					"cells": "intl"}}]
+					"cells": "intl"}},
+			{"name": "Plot",
+				"pname": "plotp",
+				"foo": self.apPlot,
+				"param": {"protocols": "strl",
+					"types": "strl",
+					"cells": "intl",
+					"trials": "intl",
+					"rateRange": "floatr",
+					"idRange": "intr",
+					"win": "floatr",
+					"errorBar": "bool",
+					"label": "combo,type,protocol,none",
+					"magnify": "float"}}]
 		return basicParam, prof

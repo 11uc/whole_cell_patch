@@ -321,13 +321,9 @@ class Mini(SignalProc, Analysis):
 		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
 		miniDataF = "/mini/" + protocol + "/miniProps"
 		trialDataF = "/mini/" + protocol + "/trialProps"
-		miniProps = pd.read_hdf(self.projMan.workDir + os.sep + "interm.h5",
-				"/mini/" + protocol + "/miniProps")
-		trialProps = pd.read_hdf(self.projMan.workDir + os.sep + "interm.h5",
-				"/mini/" + protocol + "/trialProps")
 		if miniDataF in store.keys() and trialDataF in store.keys():
-			miniProps = store[miniDataF]
-			trialProps = store[trialDataF]
+			miniProps = store.get(miniDataF)
+			trialProps = store.get(trialDataF)
 			store.close()
 			if RsTh > 0 and len(miniProps):
 				try:
