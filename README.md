@@ -207,7 +207,20 @@ two exponetial functions, one positive and one negative.
 	two minis.
 *	*scale*: scale value for better fitting.
 #### Mini Analysis
-Detecting minis.
+Detecting minis. The detecting method is as follows. 
+The criterions are:
+
+1.	Rising slope large enough
+2.	Rise time short enough
+3.	Amplitude large enough
+4.	Decay fit exponential curve with low enough residual
+5.	Decay time constant big enough
+
+It will make a list of peaks with rising slope large enough and rise time short
+enough. Then it will look at each of the peaks. For peaks with large enough
+amplitude, it will fit double exponential function to it. After fitting, those
+with low enough fitting exponential and big enough decay time constant will
+be kept.
 
 *	*win*: time window in which the minis will be detected.
 *	*verbose*: level of details to display during detection.  
@@ -215,6 +228,7 @@ Detecting minis.
 	1 - display cell and trial numbers.  
 	2 - display detection result for each trial.
 	3 - display fitting result for each mini.
+
 #### Properties
 Output averaged mini properties.
 

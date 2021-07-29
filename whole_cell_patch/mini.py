@@ -2,6 +2,7 @@
 # calculate their properties.
 
 import os
+import copy
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
@@ -69,7 +70,7 @@ class Mini(SignalProc, Analysis):
 		param: dictionary
 			Basic parameters.
 		'''
-		self.miniParam = param
+		self.miniParam = copy.deepcopy(param)
 		self.miniParam["riseSlope"] *= param["scale"]
 		self.miniParam["minAmp"] *= param["scale"]
 
@@ -77,10 +78,16 @@ class Mini(SignalProc, Analysis):
 		'''
 		Detect minis and analyze them
 		Criterions:
-		  1. Rise time short enough
-		  2. Amplitude large enough
-		  3. Decay fit exponential curve with low enough residual
-		  4. Decay time constant big enough
+		  1. Rising slope large enough
+		  2. Rise time short enough
+		  3. Amplitude large enough
+		  4. Decay fit exponential curve with low enough residual
+		  5. Decay time constant big enough
+		It will make a list of peaks with rising slope large enough and rise time short
+		enough. Then it will look at each of the peaks. For peaks with large enough
+		amplitude, it will fit double exponential function to it. After fitting, those
+		with low enough fitting exponential and big enough decay time constant will
+		be kept.
 
 		Parameters
 		----------
@@ -143,6 +150,16 @@ class Mini(SignalProc, Analysis):
 		last2Rise = 0  # the rise point index before last rise point
 		baseline = 0  # current baseline level
 		peakStack = []	# peaks stacked too close to each other
+		if verbose > 1:
+			ax0 = plot.plot_trace_buffer(x, sr, smooth_trace = fx)
+			ax1 = plot.plot_trace_buffer(fx, sr, pcl = 'r', 
+					points = np.nonzero(rises)[0] / sr)
+			plot.plot_trace_buffer(fx, sr, pcl = None, ax = ax1,
+					points = np.nonzero(peaks)[0] / sr)
+			self.clearPlt()
+			self.plt(ax0, 0)
+			self.plt(ax1, 1)
+			self.linkPlt(0, 0, 1, 0)
 		for i in range(len(ptrInds) - 1):
 			if peaks[ptrInds[i]]:
 				if ptrInds[i] - lastRise < self.miniParam['riseTime'] * sr or \
@@ -206,7 +223,7 @@ class Mini(SignalProc, Analysis):
 										plot.plot_trace_buffer(
 												fun(np.arange(len(sample)), *popt),
 												sr, ax = ax, cl = 'r')
-										self.plt(ax)
+										self.plt(ax, 2)
 										self.prt("Continue (c) or step (default)")
 										if self.ipt() == 'c':
 											verbose = 1
