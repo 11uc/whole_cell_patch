@@ -44,10 +44,10 @@ class Mini(SignalProc, Analysis):
 					"lowBandWidth" : 300, 
 					"riseSlope" : 4.5e-9, 
 					"riseTime" : 5e-3, 
-					"baseLineWin" : 10e-3, 
+					"baseLineWin" : 5e-4, 
 					"minAmp" : 1e-11, 
 					"minTau" : 1.2e-3, 
-					"residual" : 0.2, 
+					"residual" : 200, 
 					"onTauIni" : 1, 
 					"offTauIni" : 20, 
 					"stackWin" : 7e-3, 
@@ -58,7 +58,11 @@ class Mini(SignalProc, Analysis):
 				"aveMini": {"protocol": '',
 					"cells": [],
 					"RsTh": 0,
-					"numTh": 0}}
+					"numTh": 0},
+				"indMini": {"protocol": '',
+					"cells": [],
+					"trials": []},
+				}
 		return default[name]
 	
 	def setBasic(self, param):
@@ -114,7 +118,6 @@ class Mini(SignalProc, Analysis):
 		miniPeaks = []  # valid minis' peak time points
 		miniAmps = []	# valid mini's peak amplitudes
 		miniDecayTaus = []  # valid mini's decay time constants
-		print(win)
 		if win[0] != win[1]:
 			x = trace[int(sr * win[0]):int(sr * win[1])] * \
 					self.miniParam['sign']
@@ -125,7 +128,6 @@ class Mini(SignalProc, Analysis):
 				self.miniParam['medianFilterThresh'])
 		# scale
 		x = x * self.miniParam["scale"]
-		print(len(x))
 		# remove linear shifting baseline
 		p = np.polyfit(np.arange(len(x)), x, 1)
 		x = (x - np.polyval(p, np.arange(len(x))))
@@ -362,8 +364,8 @@ class Mini(SignalProc, Analysis):
 				cells = list(set(cells) & 
 						set(self.projMan.getSelectedCells()) &
 						set(trialProps.index.get_level_values("cell")))
-				miniProps = miniProps.loc[(cells), :]
-				trialProps = trialProps.loc[(cells), :]
+				miniProps = miniProps.loc[(slice(None), cells), :]
+				trialProps = trialProps.loc[(slice(None), cells), :]
 			aveMiniProps = miniProps.groupby("cell").mean()
 			sumTrialProps = trialProps.groupby("cell").sum()
 			sumTrialProps["rate"] = sumTrialProps["num"] / sumTrialProps["dur"]
@@ -377,6 +379,39 @@ class Mini(SignalProc, Analysis):
 			aveMiniProps.to_csv(self.projMan.workDir + os.sep + \
 					"mini_" + protocol + ".csv")
 			return aveMiniProps
+		store.close()
+	
+	def indProps(self, protocol, cells = [], trials = []):
+		'''
+		Output properties of individual minis to a csv file.
+
+		Parameters
+		----------
+		cells: array_like, optional
+			Ids of cells to include, default is all the cells.
+		trials: array_like, optional
+			Ids of trials to include, default is all the trials.
+		'''
+		store = pd.HDFStore(self.projMan.workDir + os.sep + "interm.h5")
+		miniDataF = "/mini/" + protocol + "/miniProps"
+		trialDataF = "/mini/" + protocol + "/trialProps"
+		if miniDataF in store.keys() and trialDataF in store.keys():
+			miniProps = store.get(miniDataF)
+			trialProps = store.get(trialDataF)
+			store.close()
+		if len(cells):
+			cells = list(set(cells) & 
+					set(self.projMan.getSelectedCells()) &
+					set(trialProps.index.get_level_values("cell")))
+		else:
+			cells = list(set(self.projMan.getSelectedCells()) &
+					set(trialProps.index.get_level_values("cell")))
+		if len(trials):
+			miniProps = miniProps.loc[(slice(None), cells, trials), :]
+		else:
+			miniProps = miniProps.loc[(slice(None), cells,), :]
+		miniProps.to_csv(self.projMan.workDir + os.sep + \
+					"ind_mini_" + protocol + ".csv")
 		store.close()
 
 	def profile(self):
@@ -404,11 +439,18 @@ class Mini(SignalProc, Analysis):
 				"param": {"protocol": "protocol",
 					"win": "floatr",
 					"verbose": "int"}},
-			{"name": "Properties", 
+			{"name": "Mean Properties", 
 				"pname": "aveMini", 
 				"foo": self.aveProps,
 				"param": {"protocol": "protocol",
 					"cells": "intl",
 					"RsTh": "float",
-					"numTh": "int"}}]
+					"numTh": "int"}},
+			{"name": "Properties", 
+				"pname": "indMini", 
+				"foo": self.indProps,
+				"param": {"protocol": "protocol",
+					"cells": "intl",
+					"trials": "intl"}}
+				]
 		return basicParam, prof
